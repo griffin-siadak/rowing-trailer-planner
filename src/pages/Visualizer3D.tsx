@@ -281,28 +281,6 @@ function Rail({ from, to, r = 0.025, color = '#6b7280' }: {
   );
 }
 
-// â”€â”€ Rigger arm (two struts + oarlock pin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Real shell riggers are a "V" brace extending from the gunwale to the pin.
-// pinX: distance from boat centreline to the oarlock pin.
-function RiggerArm({ z, hw, pinX, port }: {
-  z: number; hw: number; pinX: number; port: boolean;
-}) {
-  const s = port ? -1 : 1;
-  // Main stay runs from gunwale level forward to pin
-  const fwd: [number,number,number]  = [s * hw,   0.01, z + 0.06];
-  const aft: [number,number,number]  = [s * hw,   0.01, z - 0.12];
-  const pin: [number,number,number]  = [s * pinX, 0.05, z - 0.04];
-  return (
-    <>
-      <Rail from={fwd} to={pin} r={0.007} color="#9ca3af" />
-      <Rail from={aft} to={pin} r={0.007} color="#9ca3af" />
-      <mesh position={pin}>
-        <cylinderGeometry args={[0.013, 0.013, 0.07, 6]} />
-        <meshStandardMaterial color="#374151" metalness={0.75} roughness={0.3} />
-      </mesh>
-    </>
-  );
-}
 
 // â”€â”€ Shell mesh â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CREW_DISPLAY: Record<string, number> = {
@@ -511,14 +489,12 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
 //   â€¢ Spare tyre flat-mounted between rack and axle
 //   â€¢ Screw-down landing leg at tongue
 
-function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towerGroups, tierSlotXs, slotWidths }: {
+function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towerGroups }: {
   tiers: number;
   trailerLength: number;
   trailerWidthM: number;
   tongueLengthM: number;
   towerGroups: TowerGroup[];
-  tierSlotXs: number[][];
-  slotWidths:  number[][];
 }) {
   const halfLen   = trailerLength / 2;
   const groundY   = -0.05;
@@ -539,7 +515,6 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
   const rake  = 0;
 
   // Tray spans the full bed length, centered at origin
-  const trayRear  = -halfLen;
   const trayFront =  halfLen;
   const trayLen   = trailerLength;
   const nTowers   = Math.max(2, towerGroups.length);
@@ -548,16 +523,6 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
   const towerZs    = Array.from({ length: nTowers }, (_, i) =>
     trayFront - towerInset - (i / (nTowers - 1)) * towerSpan
   );
-
-  // Collect all gunwale X positions per tier (for arm extent and runner placement)
-  const gunwalesByTier: number[][] = Array.from({ length: tiers }, (_, t) => {
-    const gxs: number[] = [];
-    tierSlotXs[t]?.forEach((cx, p) => {
-      const hw = (slotWidths[t]?.[p] ?? 0.30) / 2;
-      gxs.push(cx - hw, cx + hw);
-    });
-    return gxs.sort((a, b) => a - b);
-  });
 
   const alum   = '#c4cdd6';
   const dark   = '#2a3540';
@@ -1025,18 +990,6 @@ function Scene() {
 
   const trailerLength = trailer.bedLengthM ?? 10.97;
 
-  // Derive tier arm extents from placements (for TrailerFrame)
-  const { tierSlotXs, slotWidths } = useMemo(() => {
-    const txs:    number[][] = Array.from({ length: trailer.tiers }, () => []);
-    const widths: number[][] = Array.from({ length: trailer.tiers }, () => []);
-    placements.forEach(p => {
-      const boat = boatById[p.boatId];
-      if (!boat || p.slung) return;
-      txs[p.tier]?.push(p.xM);
-      widths[p.tier]?.push(boat.widthM);
-    });
-    return { tierSlotXs: txs, slotWidths: widths };
-  }, [placements, boatById, trailer.tiers]);
 
   // Unplaced boats go on staging racks — 16 boats per rack, new rack added when full
   const STAGING_SLOT_W    = 0.55;
@@ -1085,8 +1038,6 @@ function Scene() {
           trailerWidthM={trailer.trailerWidthM ?? 2.44}
           tongueLengthM={trailer.tongueLengthM ?? 2.0}
           towerGroups={trailer.towerGroups}
-          tierSlotXs={tierSlotXs}
-          slotWidths={slotWidths}
         />
 
         {/* Placed boats on trailer */}
