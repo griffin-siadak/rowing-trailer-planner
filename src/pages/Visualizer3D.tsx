@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 import type { Boat, BoatPlacement, TowerGroup } from '../types';
 import { computeTowerZs, computeTowerXZs, getTowerXsForGroup, snapZ, boatClearsTowers } from '../utils';
+import { SHELL_DB } from '../shellDatabase';
 
 // â”€â”€ Fallback palette (used when manufacturer is unknown) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BOAT_COLORS = [
@@ -934,57 +935,111 @@ function Controls({ maxDist, enabled }: { maxDist: number; enabled: boolean }) {
 
 // -- Scene --------------------------------------------------------------------
 function Scene() {
-  const { trailer, boats, placements, movePlacement } = useStore();
+  const { trailer, boats, placements, movePlacement, addPlacement, removePlacement } = useStore();
 
   const boatById     = Object.fromEntries(boats.map(b => [b.id, b]));
   const boatColorIdx = Object.fromEntries(boats.map((b, i) => [b.id, i]));
 
   // ── Drag state ────────────────────────────────────────────────────────────
-  const [dragId,   setDragId]   = useState<string | null>(null);
-  const [preview,  setPreview]  = useState<{ xM: number; zCenterM: number } | null>(null);
-  const dragOffset = useRef<{ x: number; z: number; tier: number } | null>(null);
+  // source: 'placement' = dragging a placed boat; 'staging' = dragging from staging rack
+  interface DragState {
+    source: 'placement' | 'staging';
+    id: string;       // placementId (placement) or boatId (staging)
+    boatId: string;
+    origTier: number;
+    screenX0: number;
+    screenY0: number;
+    offsetX: number;
+    offsetZ: number;
+    previewX: number;
+    previewZ: number;
+    previewTier: number;
+  }
+  const [drag, setDrag] = useState<DragState | null>(null);
 
   const towerZs  = useMemo(() => computeTowerZs(trailer),  [trailer]);
   const towerXZs = useMemo(() => computeTowerXZs(trailer), [trailer]);
   const halfLen = trailer.bedLengthM / 2;
   const halfW   = trailer.trailerWidthM / 2;
 
+  // Tier changes only when vertical movement dominates and exceeds threshold
+  const TIER_THRESHOLD_PX = 80;
+
+  function calcTier(e: React.PointerEvent | PointerEvent, drag: DragState) {
+    const dx = Math.abs(e.clientX - drag.screenX0);
+    const dy = e.clientY - drag.screenY0;
+    // Only register tier change when moving more vertically than horizontally
+    if (Math.abs(dy) < TIER_THRESHOLD_PX || Math.abs(dy) < dx * 1.2) return drag.previewTier;
+    const delta = Math.round(dy / TIER_THRESHOLD_PX);
+    return Math.max(0, Math.min(trailer.tiers - 1, drag.origTier + delta));
+  }
+
   function startDrag(e: ThreeEvent<PointerEvent>, placement: BoatPlacement) {
-    dragOffset.current = {
-      x: e.point.x - placement.xM,
-      z: e.point.z - placement.zCenterM,
-      tier: placement.tier,
-    };
-    setDragId(placement.id);
-    setPreview({ xM: placement.xM, zCenterM: placement.zCenterM });
+    setDrag({
+      source: 'placement',
+      id: placement.id,
+      boatId: placement.boatId,
+      origTier: placement.tier,
+      screenX0: e.nativeEvent.clientX,
+      screenY0: e.nativeEvent.clientY,
+      offsetX: e.point.x - placement.xM,
+      offsetZ: e.point.z - placement.zCenterM,
+      previewX: placement.xM,
+      previewZ: placement.zCenterM,
+      previewTier: placement.tier,
+    });
+  }
+
+  function startStagingDrag(e: ThreeEvent<PointerEvent>, boat: { id: string; lengthM: number; widthM: number }, stagingX: number) {
+    setDrag({
+      source: 'staging',
+      id: boat.id,
+      boatId: boat.id,
+      origTier: 0,
+      screenX0: e.nativeEvent.clientX,
+      screenY0: e.nativeEvent.clientY,
+      offsetX: e.point.x - stagingX,
+      offsetZ: e.point.z,
+      previewX: 0,
+      previewZ: 0,
+      previewTier: 0,
+    });
   }
 
   function onDragMove(e: ThreeEvent<PointerEvent>) {
-    const d = dragOffset.current;
-    if (!d || !dragId) return;
-    const p = placements.find(pl => pl.id === dragId);
-    if (!p) return;
-    const boat = boatById[p.boatId];
+    if (!drag) return;
+    const boat = boatById[drag.boatId];
     if (!boat) return;
-    const rawX = e.point.x - d.x;
-    const rawZ = e.point.z - d.z;
+    const newTier = calcTier(e.nativeEvent, drag);
+    const rawX = e.point.x - drag.offsetX;
+    const rawZ = e.point.z - drag.offsetZ;
     const snZ  = snapZ(rawZ, boat.lengthM, towerZs, halfLen);
-    const clX  = Math.max(-halfW + boat.widthM / 2, Math.min(halfW - boat.widthM / 2, rawX));
-    setPreview({ xM: clX, zCenterM: snZ });
+    // Don't clamp X — allow dragging off the trailer so the user can unplace boats
+    setDrag(d => d ? { ...d, previewX: rawX, previewZ: snZ, previewTier: newTier } : null);
   }
 
-  function onDragEnd() {
-    if (dragId && preview) {
-      const p = placements.find(pl => pl.id === dragId);
-      const boat = p ? boatById[p.boatId] : null;
-      const clear = boat
-        ? boatClearsTowers(preview.xM, preview.zCenterM, boat.widthM, boat.lengthM, towerXZs)
-        : true;
-      if (clear) movePlacement(dragId, preview);
+  function onDragEnd(e: ThreeEvent<PointerEvent>) {
+    if (!drag) return;
+    const boat = boatById[drag.boatId];
+    const newTier = calcTier(e.nativeEvent, drag);
+    const isOnTrailer = drag.previewX >= -halfW - 0.5 && drag.previewX <= halfW + 0.5;
+    const clear = boat
+      ? (newTier === 0 || boatClearsTowers(drag.previewX, drag.previewZ, boat.widthM, boat.lengthM, towerXZs))
+      : true;
+
+    if (drag.source === 'placement') {
+      if (!isOnTrailer) {
+        removePlacement(drag.id);
+      } else if (clear) {
+        movePlacement(drag.id, { tier: newTier, xM: drag.previewX, zCenterM: drag.previewZ });
+      }
+    } else {
+      // staging → trailer
+      if (isOnTrailer && clear && boat) {
+        addPlacement({ boatId: drag.boatId, tier: newTier, xM: drag.previewX, zCenterM: drag.previewZ });
+      }
     }
-    setDragId(null);
-    setPreview(null);
-    dragOffset.current = null;
+    setDrag(null);
   }
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -1025,7 +1080,7 @@ function Scene() {
   return (
     <>
       <PerspectiveCamera makeDefault position={[camD * 0.5, camD * 0.38, camD * 0.75]} fov={50} />
-      <Controls maxDist={trailerLength * 4} enabled={dragId === null} />
+      <Controls maxDist={trailerLength * 4} enabled={drag === null} />
       <ambientLight intensity={0.5} />
       <directionalLight position={[5, 10, -4]} intensity={1.4} castShadow shadow-mapSize={[1024, 1024]} />
       <directionalLight position={[-4, 4, 8]} intensity={0.5} />
@@ -1044,10 +1099,12 @@ function Scene() {
         {placements.map(p => {
           const boat = boatById[p.boatId];
           if (!boat) return null;
-          const isDragging = dragId === p.id;
-          const dispX = isDragging && preview ? preview.xM        : p.xM;
-          const dispZ = isDragging && preview ? preview.zCenterM  : p.zCenterM;
-          const posY  = p.slung ? slingY(p.tier, trailer.tiers) : tierY(p.tier, trailer.tiers) + 0.03;
+          const isDragging = drag?.source === 'placement' && drag.id === p.id;
+          const rawDispX = isDragging ? drag!.previewX : p.xM;
+          const dispX = isDragging ? Math.max(-halfW - 1, Math.min(halfW + 1, rawDispX)) : rawDispX;
+          const dispZ = isDragging ? drag!.previewZ : p.zCenterM;
+          const dispTier = isDragging ? drag!.previewTier : p.tier;
+          const posY  = p.slung ? slingY(p.tier, trailer.tiers) : tierY(dispTier, trailer.tiers) + 0.03;
           return (
             <ShellMesh
               key={p.id}
@@ -1058,15 +1115,34 @@ function Scene() {
               slung={p.slung}
               colorIndex={boatColorIdx[boat.id]}
               isSelected={isDragging}
-              onPointerDown={(e) => { if (!dragId) startDrag(e, p); }}
+              onPointerDown={(e) => { if (!drag) startDrag(e, p); }}
             />
           );
         })}
 
-        {/* Invisible drag-capture plane — absorbs pointer move/up while dragging */}
-        {dragId && dragOffset.current !== null && (
+        {/* Ghost boat when dragging from staging rack onto trailer */}
+        {drag?.source === 'staging' && (() => {
+          const boat = boatById[drag.boatId];
+          if (!boat) return null;
+          const isOnTrailer = drag.previewX >= -halfW - 0.5 && drag.previewX <= halfW + 0.5;
+          if (!isOnTrailer) return null;
+          return (
+            <ShellMesh
+              boat={boat}
+              posX={drag.previewX}
+              posY={tierY(drag.previewTier, trailer.tiers) + 0.03}
+              posZ={drag.previewZ}
+              colorIndex={boatColorIdx[boat.id]}
+              isSelected={true}
+              onPointerDown={() => {}}
+            />
+          );
+        })()}
+
+        {/* Invisible drag-capture plane at ground level — absorbs pointer move/up while dragging */}
+        {drag && (
           <mesh
-            position={[0, tierY(dragOffset.current.tier, trailer.tiers) + 0.03, 0]}
+            position={[0, 0.01, 0]}
             rotation={[-Math.PI / 2, 0, 0]}
             onPointerMove={onDragMove}
             onPointerUp={onDragEnd}
@@ -1089,18 +1165,23 @@ function Scene() {
         ))}
 
         {/* Unplaced boats distributed across staging racks */}
-        {stagingGrid.map(({ boat, tier, x, rackIdx }) => (
-          <ShellMesh
-            key={boat.id}
-            boat={boat}
-            posX={firstRackX + rackIdx * rackSpacing + x}
-            posY={tierY(tier, STAGING_TIERS) + 0.03}
-            posZ={0}
-            colorIndex={boatColorIdx[boat.id]}
-            isSelected={false}
-            onPointerDown={(e) => e.stopPropagation()}
-          />
-        ))}
+        {stagingGrid.map(({ boat, tier, x, rackIdx }) => {
+          const stagingX = firstRackX + rackIdx * rackSpacing + x;
+          const isDragging = drag?.source === 'staging' && drag.id === boat.id;
+          if (isDragging) return null; // ghost shown on trailer instead
+          return (
+            <ShellMesh
+              key={boat.id}
+              boat={boat}
+              posX={stagingX}
+              posY={tierY(tier, STAGING_TIERS) + 0.03}
+              posZ={0}
+              colorIndex={boatColorIdx[boat.id]}
+              isSelected={false}
+              onPointerDown={(e) => { if (!drag) startStagingDrag(e, boat, stagingX); }}
+            />
+          );
+        })}
       </group>
     </>
   );
@@ -1108,13 +1189,32 @@ function Scene() {
 
 // -- Page ---------------------------------------------------------------------
 export default function Visualizer3D() {
-  const { boats, placements } = useStore();
+  const { boats, placements, autoLayout, clearPlacements, addBoat } = useStore();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { void e; };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  function addRandom() {
+    const usable = SHELL_DB.filter(s => s.lengthM && s.widthM);
+    [...usable].sort(() => Math.random() - 0.5).slice(0, 10).forEach(s =>
+      addBoat({
+        name: `${s.manufacturer} ${s.modelName}`,
+        manufacturer: s.manufacturer,
+        boatClass: s.boatClass.split('/')[0],
+        lengthM: s.lengthM,
+        widthM: s.widthM ?? 0.32,
+        weightKg: s.hullWeightKg ?? 50,
+      })
+    );
+  }
+
+  const btnStyle: React.CSSProperties = {
+    padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+    fontWeight: 600, fontSize: 13, backdropFilter: 'blur(8px)',
+  };
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -1130,6 +1230,31 @@ export default function Visualizer3D() {
             : 'Arrange boats in the Layout tab to see the 3D view.'}
         </div>
       )}
+
+      {/* Toolbar overlay */}
+      <div style={{
+        position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
+        zIndex: 10, display: 'flex', gap: 8,
+      }}>
+        <button
+          onClick={autoLayout}
+          style={{ ...btnStyle, background: 'rgba(29,78,216,0.85)', color: 'white' }}
+        >
+          ✨ Auto-Arrange
+        </button>
+        <button
+          onClick={addRandom}
+          style={{ ...btnStyle, background: 'rgba(255,255,255,0.15)', color: 'white' }}
+        >
+          + 10 Random
+        </button>
+        <button
+          onClick={clearPlacements}
+          style={{ ...btnStyle, background: 'rgba(255,255,255,0.15)', color: 'white' }}
+        >
+          Clear Layout
+        </button>
+      </div>
 
       <Canvas
         dpr={[1, 1]}

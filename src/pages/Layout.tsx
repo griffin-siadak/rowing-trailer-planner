@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useStore } from '../store';
 import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers } from '../utils';
 import { SHELL_DB } from '../shellDatabase';
@@ -109,6 +109,45 @@ export default function Layout() {
 
   const [pendingBoatId, setPendingBoatId] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  function printLayout() {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const svgHtml = svg.outerHTML;
+
+    const tierSummaries = Array.from({ length: trailer.tiers }, (_, t) => {
+      const tierPlacements = placements.filter(p => p.tier === t);
+      const counts = tierPlacements.reduce<Record<string, number>>((acc, p) => {
+        const cls = boatById[p.boatId]?.boatClass ?? '?';
+        acc[cls] = (acc[cls] ?? 0) + 1;
+        return acc;
+      }, {});
+      const summary = Object.entries(counts).map(([cls, n]) => `${n}× ${cls}`).join(', ') || 'Empty';
+      return `<tr><td style="font-weight:600;padding:3px 10px 3px 0">${TIER_NAMES[t] ?? `Tier ${t+1}`}</td><td style="color:#475569">${summary}</td></tr>`;
+    }).join('');
+
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>${trailer.name} — Layout</title>
+      <style>
+        body { font-family: system-ui, sans-serif; margin: 24px; color: #1e293b; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        .meta { font-size: 12px; color: #64748b; margin-bottom: 12px; }
+        table { border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+        svg { width: 100%; height: auto; display: block; }
+        @media print { body { margin: 8px; } }
+      </style>
+    </head><body>
+      <h1>${trailer.name}</h1>
+      <div class="meta">${trailer.bedLengthM}m bed · ${trailer.tiers} tiers · ${placements.length} boats placed · Printed ${new Date().toLocaleDateString()}</div>
+      <table>${tierSummaries}</table>
+      ${svgHtml}
+      <script>window.onload = () => { window.print(); }<\/script>
+    </body></html>`);
+    win.document.close();
+  }
 
   const maxBoatLen = boats.reduce((m, b) => Math.max(m, b.lengthM), 0);
   const overhang = Math.max(MIN_OVERHANG, (maxBoatLen - bedLen) / 2 + 0.5);
@@ -120,7 +159,7 @@ export default function Layout() {
     const boat = boatById[boatId];
     if (!boat) return false;
     if (!isValidZ(zM, boat.lengthM, towerZs)) return false;
-    if (!boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) return false;
+    if (tier > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) return false;
     return !placements.some(p => {
       if (p.tier !== tier || p.id === excludeId) return false;
       if (!!p.slung !== isSlung) return false;
@@ -220,6 +259,7 @@ export default function Layout() {
           onClick={() => { if (window.confirm('Remove all boats and clear layout?')) clearAll(); }}
           style={{ ...btnSecondary, color: '#b91c1c', borderColor: '#fca5a5' }}
         >Clear All</button>
+        <button onClick={printLayout} style={{ ...btnSecondary, color: '#0f766e', borderColor: '#99f6e4' }}>🖨 Print</button>
       </div>
 
       {pendingBoatId && (
@@ -232,6 +272,7 @@ export default function Layout() {
       {/* SVG */}
       <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
         <svg
+          ref={svgRef}
           viewBox={`0 0 ${svgW} ${svgH}`}
           style={{ display: 'block', height: '100%', width: 'auto', minWidth: '100%', cursor: pendingBoatId ? 'crosshair' : 'default', touchAction: 'none' }}
           onPointerDown={handlePointerDown}

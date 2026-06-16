@@ -105,7 +105,7 @@ export const useStore = create<State>()(
             ...s.trailer,
             towerGroups: [
               ...s.trailer.towerGroups,
-              { id: makeId(), count: 1, xCenter: 0 },
+              { id: makeId(), count: s.trailer.towerGroups[0]?.count ?? 1, xCenter: s.trailer.towerGroups[0]?.xCenter ?? 0 },
             ],
           },
         })),
@@ -179,7 +179,7 @@ export const useStore = create<State>()(
                 .sort((a, b) => Math.abs(a) - Math.abs(b));
 
               for (const zM of validZs) {
-                if (!boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) continue;
+                if (t > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) continue;
                 const collision = newPlacements.some(p => {
                   if (p.tier !== t) return false;
                   const pb = boats.find(b => b.id === p.boatId);
@@ -201,8 +201,22 @@ export const useStore = create<State>()(
     }),
     {
       name: 'rowing-trailer-planner',
-      version: 2,
-      migrate: () => ({ trailer: DEFAULT_TRAILER, boats: [], placements: [] }),
+      version: 3,
+      migrate: (state: unknown, version: number) => {
+        if (version < 2) return { trailer: DEFAULT_TRAILER, boats: [], placements: [] };
+        // v2→v3: normalise all tower groups to the same count and xCenter as the first group
+        const s = state as { trailer: { towerGroups?: { id: string; count: number; xCenter: number }[] }; boats: unknown[]; placements: unknown[] };
+        const groups = s.trailer?.towerGroups ?? [];
+        const count   = groups[0]?.count   ?? 1;
+        const xCenter = groups[0]?.xCenter ?? 0;
+        return {
+          ...s,
+          trailer: {
+            ...s.trailer,
+            towerGroups: groups.map(g => ({ ...g, count, xCenter })),
+          },
+        };
+      },
     }
   )
 );
