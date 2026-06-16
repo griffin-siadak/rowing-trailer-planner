@@ -2,20 +2,19 @@ export interface Boat {
   id: string;
   name: string;
   manufacturer?: string;
-  boatClass: string; // '1x', '2x', '4+', '8+', etc.
+  boatClass: string;
   lengthM: number;
   widthM: number;
   weightKg: number;
 }
 
-export interface Slot {
+export interface BoatPlacement {
   id: string;
-  tier: number;     // 0 = top, higher = lower (bottom); for slung slots = the tier they hang below
-  position: number; // left-to-right index
-  maxLengthM: number;
-  maxWidthM: number;
-  maxWeightKg: number;
-  slung?: boolean;  // if true, boat is strapped inverted below the tier's rail
+  boatId: string;
+  tier: number;
+  xM: number;        // lateral centre from trailer centreline (0 = centre)
+  zCenterM: number;  // longitudinal centre from trailer centre (0 = midpoint)
+  slung?: boolean;
 }
 
 export interface Trailer {
@@ -23,12 +22,7 @@ export interface Trailer {
   name: string;
   bedLengthM: number;
   tiers: number;
-  slotsPerTier: number;
-  trailerWidthM: number;    // overall outer tray width (m) — drives chassis, fenders, axle, independent of boats
-  slotWidthM: number;       // fixed bay width per slot — controls arm/rail spacing
-  tongueLengthM: number;    // length of tongue from front tower to coupler (m)
-  towerCount: number;       // number of towers, evenly spaced along the tray
-  slots: Slot[];
+  trailerWidthM: number;
+  tongueLengthM: number;
+  towerCount: number;
 }
-
-export type Assignment = Record<string, string>; // slotId -> boatId

@@ -1,59 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Boat, Trailer, Slot, Assignment } from './types';
+import type { Boat, Trailer, BoatPlacement } from './types';
+import { computeTowerZs, isValidZ, snapZ, footprintsOverlap } from './utils';
 
 function makeId() {
   return Math.random().toString(36).slice(2, 9);
-}
-
-function buildSlots(tiers: number, slotsPerTier: number): Slot[] {
-  const slots: Slot[] = [];
-  for (let t = 0; t < tiers; t++) {
-    // Normal slots on each tier
-    for (let p = 0; p < slotsPerTier; p++) {
-      slots.push({
-        id: makeId(),
-        tier: t,
-        position: p,
-        maxLengthM: 20,
-        maxWidthM: 2,
-        maxWeightKg: t === 0 ? 150 : 300,
-      });
-    }
-    // Slung slots hanging below this tier (not below the last tier, one fewer than normal slots)
-    if (t < tiers - 1) {
-      for (let p = 0; p < slotsPerTier - 1; p++) {
-        slots.push({
-          id: makeId(),
-          tier: t,
-          position: p,
-          maxLengthM: 20,
-          maxWidthM: 2,
-          maxWeightKg: 200,
-          slung: true,
-        });
-      }
-    }
-  }
-  return slots;
-}
-
-// Staging rack slots use stable deterministic IDs so they survive store rebuilds
-function buildStagingSlots(tiers: number, slotsPerTier: number): Slot[] {
-  const slots: Slot[] = [];
-  for (let t = 0; t < tiers; t++) {
-    for (let p = 0; p < slotsPerTier; p++) {
-      slots.push({
-        id: `stg-${t}-${p}`,
-        tier: t,
-        position: p,
-        maxLengthM: 20,
-        maxWidthM: 2,
-        maxWeightKg: 500,
-      });
-    }
-  }
-  return slots;
 }
 
 const DEFAULT_TRAILER: Trailer = {
@@ -61,15 +12,12 @@ const DEFAULT_TRAILER: Trailer = {
   name: 'My Trailer',
   bedLengthM: 10.97,
   tiers: 3,
-  slotsPerTier: 4,
   trailerWidthM: 2.44,
-  slotWidthM: 0.55,
   tongueLengthM: 2.0,
   towerCount: 3,
-  slots: buildSlots(3, 4),
 };
 
-const BOAT_CLASSES: Record<string, { lengthM: number; widthM: number; weightKg: number }> = {
+export const BOAT_CLASSES: Record<string, { lengthM: number; widthM: number; weightKg: number }> = {
   '1x':  { lengthM: 8.2,  widthM: 0.29, weightKg: 14  },
   '2x':  { lengthM: 10.4, widthM: 0.33, weightKg: 27  },
   '2-':  { lengthM: 10.4, widthM: 0.33, weightKg: 27  },
@@ -81,153 +29,115 @@ const BOAT_CLASSES: Record<string, { lengthM: number; widthM: number; weightKg: 
 
 interface State {
   trailer: Trailer;
-  stagingSlots: Slot[];
   boats: Boat[];
-  assignment: Assignment;
+  placements: BoatPlacement[];
 
-  updateTrailer: (patch: Partial<Omit<Trailer, 'slots'>>) => void;
-  rebuildSlots: (tiers: number, slotsPerTier: number) => void;
-  updateSlot: (slotId: string, patch: Partial<Slot>) => void;
-
+  updateTrailer: (patch: Partial<Trailer>) => void;
   addBoat: (boat: Omit<Boat, 'id'>) => void;
   updateBoat: (id: string, patch: Partial<Boat>) => void;
   removeBoat: (id: string) => void;
 
-  assign: (slotId: string, boatId: string | null) => void;
-  clearAssignment: () => void;
+  addPlacement: (p: Omit<BoatPlacement, 'id'>) => void;
+  movePlacement: (id: string, patch: Partial<Pick<BoatPlacement, 'tier' | 'xM' | 'zCenterM'>>) => void;
+  setSlung: (id: string, slung: boolean) => void;
+  removePlacement: (id: string) => void;
+  clearPlacements: () => void;
+
   autoLayout: () => void;
-  autoStageUnassigned: () => void;
 }
 
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
       trailer: DEFAULT_TRAILER,
-      stagingSlots: buildStagingSlots(3, 4),
       boats: [],
-      assignment: {},
+      placements: [],
 
       updateTrailer: (patch) =>
         set((s) => ({ trailer: { ...s.trailer, ...patch } })),
 
-      rebuildSlots: (tiers, slotsPerTier) =>
-        set((s) => ({
-          trailer: {
-            ...s.trailer,
-            tiers,
-            slotsPerTier,
-            slots: buildSlots(tiers, slotsPerTier),
-          },
-          stagingSlots: buildStagingSlots(tiers, slotsPerTier),
-          assignment: {},
-        })),
-
-      updateSlot: (slotId, patch) =>
-        set((s) => ({
-          trailer: {
-            ...s.trailer,
-            slots: s.trailer.slots.map((sl) =>
-              sl.id === slotId ? { ...sl, ...patch } : sl
-            ),
-          },
-        })),
-
-      addBoat: (boat) => {
-        const newBoat = { ...boat, id: makeId() };
-        set((s) => {
-          const assignment = { ...s.assignment };
-          const occupiedSlots = new Set(Object.keys(assignment));
-          const stagingSlot = s.stagingSlots.find(sl => !occupiedSlots.has(sl.id));
-          if (stagingSlot) assignment[stagingSlot.id] = newBoat.id;
-          return { boats: [...s.boats, newBoat], assignment };
-        });
-      },
+      addBoat: (boat) =>
+        set((s) => ({ boats: [...s.boats, { ...boat, id: makeId() }] })),
 
       updateBoat: (id, patch) =>
-        set((s) => ({ boats: s.boats.map((b) => (b.id === id ? { ...b, ...patch } : b)) })),
+        set((s) => ({ boats: s.boats.map(b => b.id === id ? { ...b, ...patch } : b) })),
 
       removeBoat: (id) =>
-        set((s) => {
-          const assignment = { ...s.assignment };
-          for (const slotId of Object.keys(assignment)) {
-            if (assignment[slotId] === id) delete assignment[slotId];
-          }
-          return { boats: s.boats.filter((b) => b.id !== id), assignment };
-        }),
+        set((s) => ({
+          boats: s.boats.filter(b => b.id !== id),
+          placements: s.placements.filter(p => p.boatId !== id),
+        })),
 
-      assign: (slotId, boatId) =>
-        set((s) => {
-          const assignment = { ...s.assignment };
-          // remove boat from wherever it currently sits
-          if (boatId) {
-            for (const sid of Object.keys(assignment)) {
-              if (assignment[sid] === boatId) delete assignment[sid];
-            }
-            assignment[slotId] = boatId;
-          } else {
-            delete assignment[slotId];
-          }
-          return { assignment };
-        }),
+      addPlacement: (placement) =>
+        set((s) => ({ placements: [...s.placements, { ...placement, id: makeId() }] })),
 
-      clearAssignment: () => set({ assignment: {} }),
+      movePlacement: (id, patch) =>
+        set((s) => ({
+          placements: s.placements.map(p => p.id === id ? { ...p, ...patch } : p),
+        })),
+
+      setSlung: (id, slung) =>
+        set((s) => ({
+          placements: s.placements.map(p => p.id === id ? { ...p, slung } : p),
+        })),
+
+      removePlacement: (id) =>
+        set((s) => ({ placements: s.placements.filter(p => p.id !== id) })),
+
+      clearPlacements: () => set({ placements: [] }),
 
       autoLayout: () => {
         const { trailer, boats } = get();
-        const assignment: Assignment = {};
+        const towerZs = computeTowerZs(trailer);
+        const halfLen = trailer.bedLengthM / 2;
+        const halfW = trailer.trailerWidthM / 2;
+        const GAP = 0.08;
 
-        // Sort boats heaviest first so heavy boats get lower tiers
-        const sorted = [...boats].sort((a, b) => b.weightKg - a.weightKg);
+        // Candidate Z positions: tower pair midpoints + centre
+        const candidateZs: number[] = [0];
+        for (let i = 0; i < towerZs.length - 1; i++) {
+          for (let j = i + 1; j < towerZs.length; j++) {
+            candidateZs.push((towerZs[i] + towerZs[j]) / 2);
+          }
+        }
 
-        // Sort slots: lowest tier first (highest tier index = bottom of trailer),
-        // then left to right within tier
-        const maxTier = trailer.tiers - 1;
-        const sortedSlots = [...trailer.slots].filter(s => !s.slung).sort((a, b) => {
-          const aTierScore = maxTier - a.tier; // bottom tier scores highest
-          const bTierScore = maxTier - b.tier;
-          if (bTierScore !== aTierScore) return bTierScore - aTierScore;
-          return a.position - b.position;
-        });
-
-        const usedSlots = new Set<string>();
+        const sorted = [...boats].sort((a, b) => b.lengthM - a.lengthM);
+        const newPlacements: BoatPlacement[] = [];
 
         for (const boat of sorted) {
-          for (const slot of sortedSlots) {
-            if (usedSlots.has(slot.id)) continue;
-            if (
-              boat.lengthM <= slot.maxLengthM &&
-              boat.widthM <= slot.maxWidthM &&
-              boat.weightKg <= slot.maxWeightKg
-            ) {
-              assignment[slot.id] = boat.id;
-              usedSlots.add(slot.id);
-              break;
+          let placed = false;
+          for (let t = 0; t < trailer.tiers && !placed; t++) {
+            // Candidate X positions: sweep from port to starboard
+            const xStep = boat.widthM + GAP;
+            const xStart = -halfW + boat.widthM / 2;
+            const xEnd   =  halfW - boat.widthM / 2;
+
+            for (let xM = xStart; xM <= xEnd + 0.001 && !placed; xM += xStep) {
+              const validZs = candidateZs
+                .map(z => snapZ(z, boat.lengthM, towerZs, halfLen))
+                .filter(z => isValidZ(z, boat.lengthM, towerZs))
+                .sort((a, b) => Math.abs(a) - Math.abs(b));
+
+              for (const zM of validZs) {
+                const collision = newPlacements.some(p => {
+                  if (p.tier !== t) return false;
+                  const pb = boats.find(b => b.id === p.boatId);
+                  if (!pb) return false;
+                  return footprintsOverlap(xM, zM, boat.widthM, boat.lengthM, p.xM, p.zCenterM, pb.widthM, pb.lengthM);
+                });
+                if (!collision) {
+                  newPlacements.push({ id: makeId(), boatId: boat.id, tier: t, xM, zCenterM: zM });
+                  placed = true;
+                  break;
+                }
+              }
             }
           }
         }
 
-        set({ assignment });
-      },
-
-      autoStageUnassigned: () => {
-        const { boats, stagingSlots, assignment: cur } = get();
-        const assignment = { ...cur };
-        const assignedBoatIds = new Set(Object.values(assignment));
-        const occupiedSlots   = new Set(Object.keys(assignment));
-        for (const boat of boats) {
-          if (assignedBoatIds.has(boat.id)) continue;
-          const slot = stagingSlots.find(sl => !occupiedSlots.has(sl.id));
-          if (!slot) break;
-          assignment[slot.id] = boat.id;
-          occupiedSlots.add(slot.id);
-          assignedBoatIds.add(boat.id);
-        }
-        set({ assignment });
+        set({ placements: newPlacements });
       },
     }),
     { name: 'rowing-trailer-planner' }
   )
 );
-
-export { BOAT_CLASSES };
-export { buildSlots };

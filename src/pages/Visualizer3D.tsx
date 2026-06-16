@@ -1,9 +1,11 @@
-﻿import React, { Suspense, useRef, useMemo, useState, useCallback, useEffect } from 'react';
+﻿import React, { Suspense, useRef, useMemo, useEffect, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
+import type { ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
-import type { Boat, Slot } from '../types';
+import type { Boat, BoatPlacement } from '../types';
+import { computeTowerZs, snapZ } from '../utils';
 
 // â”€â”€ Fallback palette (used when manufacturer is unknown) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BOAT_COLORS = [
@@ -308,10 +310,10 @@ const CREW_DISPLAY: Record<string, number> = {
 };
 const SCULLING_CLASSES = new Set(['1x', '2x', '4x']);
 
-function ShellMesh({ boat, posX, posY, colorIndex, isSelected, slung, onDragStart }: {
-  boat: Boat; posX: number; posY: number; colorIndex: number;
+function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, onPointerDown }: {
+  boat: Boat; posX: number; posY: number; posZ?: number; colorIndex: number;
   isSelected: boolean; slung?: boolean;
-  onDragStart: (boatId: string) => void;
+  onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
 }) {
   // Resolve manufacturer theme; fall back to cycling palette for manually-added boats
   const theme = boat.manufacturer ? MANUFACTURER_THEMES[boat.manufacturer] : undefined;
@@ -416,9 +418,9 @@ function ShellMesh({ boat, posX, posY, colorIndex, isSelected, slung, onDragStar
 
   return (
     <group
-      position={[posX, posY, 0]}
+      position={[posX, posY, posZ]}
       rotation={slung ? [0, 0, Math.PI] : [0, 0, 0]}
-      onPointerDown={(e) => { e.stopPropagation(); onDragStart(boat.id); }}
+      onPointerDown={(e) => { e.stopPropagation(); onPointerDown(e); }}
     >
       {/* Selection glow ring â€” shown when this boat is selected for moving */}
       {isSelected && (
@@ -663,30 +665,22 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
       />
     );
 
-    // Horizontal arms at each tier height â€” extend left and right to all gunwale positions
+    // Horizontal arms at each tier height — fixed to trailer width, always visible
+    const armHW = trailerWidthM / 2 - 0.05;
     for (let t = 0; t < tiers; t++) {
-      const y   = tierY(t, tiers);
-      const gxs = gunwalesByTier[t];
-      if (!gxs.length) continue;
-
-      const leftEnd  = gxs[0]  - 0.05;
-      const rightEnd = gxs[gxs.length - 1] + 0.05;
-
-      // Left arm
+      const y = tierY(t, tiers);
       els.push(
         <Rail key={`armL-${ti}-${t}`}
-          from={[0, y, tz]} to={[leftEnd,  y, tz]}
+          from={[0, y, tz]} to={[-armHW, y, tz]}
           color={alum} r={0.022}
         />
       );
-      // Right arm
       els.push(
         <Rail key={`armR-${ti}-${t}`}
-          from={[0, y, tz]} to={[rightEnd, y, tz]}
+          from={[0, y, tz]} to={[armHW, y, tz]}
           color={alum} r={0.022}
         />
       );
-      {/* pads are full-length rails added below */}
     }
   }
 
@@ -707,20 +701,14 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
 
   // â”€â”€ 5. Foam pad strips on each arm â€” run across the trailer (X direction) â”€â”€â”€
   // One pad per tower Ã— per tier, spanning the full arm width port-to-starboard.
+  const padHW = trailerWidthM / 2 - 0.05;
   for (let ti = 0; ti < towerZs.length; ti++) {
     const tz = towerZs[ti];
     for (let t = 0; t < tiers; t++) {
-      const y   = tierY(t, tiers);
-      const gxs = gunwalesByTier[t];
-      if (!gxs.length) continue;
-      const leftEnd  = gxs[0]  - 0.05;
-      const rightEnd = gxs[gxs.length - 1] + 0.05;
-      const padWidth = rightEnd - leftEnd;
+      const y = tierY(t, tiers);
       els.push(
-        <mesh key={`pad-${ti}-${t}`}
-          position={[(leftEnd + rightEnd) / 2, y + 0.026, tz]}
-        >
-          <boxGeometry args={[padWidth, 0.040, 0.055]} />
+        <mesh key={`pad-${ti}-${t}`} position={[0, y + 0.026, tz]}>
+          <boxGeometry args={[padHW * 2, 0.040, 0.055]} />
           <meshStandardMaterial color="#111118" roughness={0.97} />
         </mesh>
       );
@@ -991,150 +979,114 @@ function Controls({ maxDist, enabled }: { maxDist: number; enabled: boolean }) {
   return <OrbitControls ref={ref} enabled={enabled} enablePan={false} minDistance={2} maxDistance={maxDist} />;
 }
 
-// â”€â”€ Scene â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function Scene({ dragBoatId, setDragBoatId, hoverSlotId, setHoverSlotId }: {
-  dragBoatId: string | null;
-  setDragBoatId: (id: string | null) => void;
-  hoverSlotId: string | null;
-  setHoverSlotId: (id: string | null) => void;
-}) {
-  const { trailer, stagingSlots, boats, assignment, autoStageUnassigned } = useStore();
+// -- Scene --------------------------------------------------------------------
+function Scene() {
+  const { trailer, boats, placements, movePlacement } = useStore();
 
-  // On mount, move any already-existing unassigned boats into staging slots
-  useEffect(() => { autoStageUnassigned(); }, []);
   const boatById     = Object.fromEntries(boats.map(b => [b.id, b]));
   const boatColorIdx = Object.fromEntries(boats.map((b, i) => [b.id, i]));
 
-  // Boats sit side-by-side in X on each tier, all centred at Z=0 along the trailer.
-  // Slot positions are based on the fixed bay width (trailer.slotWidthM) so the rack
-  // frame size never changes regardless of which boats are loaded.
-  const slotW = trailer.slotWidthM ?? 0.55;
-  const { slotPosX, tierSlotXs, slotWidths } = useMemo(() => {
-    const posX:   Record<string, number> = {};
-    const txs:    number[][] = [];
-    const widths: number[][] = [];
+  // ── Drag state ────────────────────────────────────────────────────────────
+  const [dragId,   setDragId]   = useState<string | null>(null);
+  const [preview,  setPreview]  = useState<{ xM: number; zCenterM: number } | null>(null);
+  const dragOffset = useRef<{ x: number; z: number; tier: number } | null>(null);
 
-    for (let t = 0; t < trailer.tiers; t++) {
-      const tierSlots = trailer.slots
-        .filter(s => s.tier === t && !s.slung)
-        .sort((a, b) => a.position - b.position);
+  const towerZs = useMemo(() => computeTowerZs(trailer), [trailer]);
+  const halfLen = trailer.bedLengthM / 2;
+  const halfW   = trailer.trailerWidthM / 2;
 
-      const n      = tierSlots.length;
-      const totalW = slotW * n + BOAT_GAP_X * Math.max(n - 1, 0);
-      let x = -totalW / 2;
-      const xs: number[] = [];
-      const ws: number[] = [];
-      tierSlots.forEach((s) => {
-        const cx = x + slotW / 2;
-        posX[s.id] = cx;
-        xs.push(cx);
-        ws.push(slotW);
-        x += slotW + BOAT_GAP_X;
-      });
-      // Slung slots sit midway between adjacent normal slots of the tier below
-      const slingSlots = trailer.slots
-        .filter(s => s.tier === t && s.slung === true)
-        .sort((a, b) => a.position - b.position);
-      slingSlots.forEach((s, i) => { posX[s.id] = ((xs[i] ?? 0) + (xs[i + 1] ?? 0)) / 2; });
+  function startDrag(e: ThreeEvent<PointerEvent>, placement: BoatPlacement) {
+    dragOffset.current = {
+      x: e.point.x - placement.xM,
+      z: e.point.z - placement.zCenterM,
+      tier: placement.tier,
+    };
+    setDragId(placement.id);
+    setPreview({ xM: placement.xM, zCenterM: placement.zCenterM });
+  }
 
-      txs.push(xs);
-      widths.push(ws);
-    }
+  function onDragMove(e: ThreeEvent<PointerEvent>) {
+    const d = dragOffset.current;
+    if (!d || !dragId) return;
+    const p = placements.find(pl => pl.id === dragId);
+    if (!p) return;
+    const boat = boatById[p.boatId];
+    if (!boat) return;
+    const rawX = e.point.x - d.x;
+    const rawZ = e.point.z - d.z;
+    const snZ  = snapZ(rawZ, boat.lengthM, towerZs, halfLen);
+    const clX  = Math.max(-halfW + boat.widthM / 2, Math.min(halfW - boat.widthM / 2, rawX));
+    setPreview({ xM: clX, zCenterM: snZ });
+  }
 
-    return { slotPosX: posX, tierSlotXs: txs, slotWidths: widths };
-  }, [trailer.slots, trailer.tiers, slotW]);
+  function onDragEnd() {
+    if (dragId && preview) movePlacement(dragId, preview);
+    setDragId(null);
+    setPreview(null);
+    dragOffset.current = null;
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   const trailerLength = trailer.bedLengthM ?? 10.97;
 
-  // Hitch Z: tray front edge (bedLengthM/2) + tongue length + coupler offset
-  // Road surface â€” matches TrailerFrame's realFloor
+  // Derive tier arm extents from placements (for TrailerFrame)
+  const { tierSlotXs, slotWidths } = useMemo(() => {
+    const txs:    number[][] = Array.from({ length: trailer.tiers }, () => []);
+    const widths: number[][] = Array.from({ length: trailer.tiers }, () => []);
+    placements.forEach(p => {
+      const boat = boatById[p.boatId];
+      if (!boat || p.slung) return;
+      txs[p.tier]?.push(p.xM);
+      widths[p.tier]?.push(boat.widthM);
+    });
+    return { tierSlotXs: txs, slotWidths: widths };
+  }, [placements, boatById, trailer.tiers]);
 
-  // Staging rack — fixed dimensions, independent of trailer config
-  const STAGING_SLOT_W = 0.55;
-  const stagingTierCount = useMemo(() => {
-    const max = stagingSlots.reduce((m, s) => Math.max(m, s.tier), 0);
-    return max + 1;
-  }, [stagingSlots]);
+  // Unplaced boats go on the staging rack in a simple computed grid
+  const STAGING_SLOT_W  = 0.55;
+  const STAGING_PER_TIER = 4;
+  const STAGING_TIERS   = 3;
+  const placedIds = new Set(placements.map(p => p.boatId));
+  const unplaced  = boats.filter(b => !placedIds.has(b.id));
 
-  const { stagingSlotPosX, stagingTierSlotXs, stagingSlotWidths } = useMemo(() => {
-    const posX:   Record<string, number> = {};
-    const txs:    number[][] = [];
-    const widths: number[][] = [];
-    for (let t = 0; t < stagingTierCount; t++) {
-      const tierSlots = stagingSlots.filter(s => s.tier === t).sort((a, b) => a.position - b.position);
-      const n      = tierSlots.length;
-      const totalW = STAGING_SLOT_W * n + BOAT_GAP_X * Math.max(n - 1, 0);
-      let x = -totalW / 2;
-      const xs: number[] = []; const ws: number[] = [];
-      tierSlots.forEach((s) => {
-        const cx = x + STAGING_SLOT_W / 2;
-        posX[s.id] = cx; xs.push(cx); ws.push(STAGING_SLOT_W);
-        x += STAGING_SLOT_W + BOAT_GAP_X;
-      });
-      txs.push(xs); widths.push(ws);
-    }
-    return { stagingSlotPosX: posX, stagingTierSlotXs: txs, stagingSlotWidths: widths };
-  }, [stagingSlots, stagingTierCount]);
+  const stagingGrid = useMemo(() => {
+    const halfW = ((STAGING_PER_TIER * STAGING_SLOT_W) + (STAGING_PER_TIER - 1) * BOAT_GAP_X) / 2;
+    return unplaced.map((boat, i) => {
+      const tier = Math.floor(i / STAGING_PER_TIER) % STAGING_TIERS;
+      const pos  = i % STAGING_PER_TIER;
+      const x    = -halfW + pos * (STAGING_SLOT_W + BOAT_GAP_X) + STAGING_SLOT_W / 2;
+      return { boat, tier, x };
+    });
+  }, [unplaced]);
 
-  // Compute half-widths of each rack to position them without overlap
-  // Physical half-width of the trailer for staging rack offset â€” use the fixed trailer width
-  // (arms may extend further, but the tray edge defines the trailer's footprint)
+  // Staging frame arm extents
+  const stagingTierSlotXs = useMemo(() => {
+    const txs: number[][] = Array.from({ length: STAGING_TIERS }, () => []);
+    stagingGrid.forEach(({ tier, x }) => txs[tier]?.push(x));
+    return txs;
+  }, [stagingGrid]);
+  const stagingSlotWidths = useMemo(() =>
+    stagingTierSlotXs.map(xs => xs.map(() => STAGING_SLOT_W)),
+    [stagingTierSlotXs]
+  );
+
   const trailerFrameHW = (trailer.trailerWidthM ?? 2.44) / 2;
-
   const stagingFrameHW = useMemo(() => {
-    const edges = stagingTierSlotXs.flatMap((xs, t) =>
-      xs.flatMap((cx, p) => { const hw = (stagingSlotWidths[t]?.[p] ?? 0.30) / 2; return [cx - hw, cx + hw]; })
-    );
+    const edges = stagingTierSlotXs.flatMap(xs => xs.flatMap(x => [x - STAGING_SLOT_W / 2, x + STAGING_SLOT_W / 2]));
     return edges.length ? Math.max(...edges.map(Math.abs)) + 0.22 : 0.65;
-  }, [stagingTierSlotXs, stagingSlotWidths]);
-
+  }, [stagingTierSlotXs]);
   const stagingOffsetX = trailerFrameHW + stagingFrameHW + 3.5;
 
-
-  const handleDragStart = useCallback((boatId: string) => {
-    setDragBoatId(boatId);
-    setHoverSlotId(null);
-  }, [setDragBoatId, setHoverSlotId]);
-
-  // Pointer move on drag plane â€” find nearest open slot across trailer + staging rack
-  const handleDragMove = useCallback((e: any) => {
-    if (!dragBoatId) return;
-    e.stopPropagation();
-    const { x, y } = e.point;
-    let bestId: string | null = null;
-    let bestDist = Infinity;
-    // Trailer slots (world X = local X, offset 0)
-    for (const slot of trailer.slots) {
-      const occupant = assignment[slot.id];
-      if (occupant && occupant !== dragBoatId) continue;
-      const sx = slotPosX[slot.id] ?? 0;
-      const sy = slot.slung ? slingY(slot.tier, trailer.tiers) : tierY(slot.tier, trailer.tiers);
-      const d = Math.sqrt((x - sx) ** 2 + (y - sy) ** 2);
-      if (d < bestDist) { bestDist = d; bestId = slot.id; }
-    }
-    // Staging slots (world X = stagingOffsetX + local X)
-    for (const slot of stagingSlots) {
-      const occupant = assignment[slot.id];
-      if (occupant && occupant !== dragBoatId) continue;
-      const sx = stagingOffsetX + (stagingSlotPosX[slot.id] ?? 0);
-      const sy = tierY(slot.tier, stagingTierCount);
-      const d = Math.sqrt((x - sx) ** 2 + (y - sy) ** 2);
-      if (d < bestDist) { bestDist = d; bestId = slot.id; }
-    }
-    setHoverSlotId(bestDist < 1.5 ? bestId : null);
-  }, [dragBoatId, trailer.slots, stagingSlots, slotPosX, stagingSlotPosX, stagingOffsetX, trailer.tiers, assignment, setHoverSlotId]);
-
-  // Camera: look along the trailer length (Z) from a 3/4 elevated angle.
   const totalLen = trailerLength + (trailer.tongueLengthM ?? 2.0);
-  const camD = Math.max(totalLen * 0.65, 14);
+  const camD     = Math.max(totalLen * 0.65, 14);
 
   return (
     <>
       <PerspectiveCamera makeDefault position={[camD * 0.5, camD * 0.38, camD * 0.75]} fov={50} />
-      <Controls maxDist={trailerLength * 4} enabled={!dragBoatId} />
+      <Controls maxDist={trailerLength * 4} enabled={dragId === null} />
       <ambientLight intensity={0.5} />
       <directionalLight position={[5, 10, -4]} intensity={1.4} castShadow shadow-mapSize={[1024, 1024]} />
-      <directionalLight position={[-4, 4,  8]} intensity={0.5} />
+      <directionalLight position={[-4, 4, 8]} intensity={0.5} />
       <hemisphereLight args={['#bfdbfe', '#94a3b8', 0.4]} />
 
       <group>
@@ -1148,120 +1100,82 @@ function Scene({ dragBoatId, setDragBoatId, hoverSlotId, setHoverSlotId }: {
           slotWidths={slotWidths}
         />
 
-
-        {/* Invisible drag plane â€” catches pointer moves for slot snapping */}
-        {dragBoatId && (
-          <mesh onPointerMove={handleDragMove}>
-            <planeGeometry args={[40, 12]} />
-            <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
-          </mesh>
-        )}
-
-        {/* Slot drop-target highlight â€” works for both trailer and staging slots */}
-        {dragBoatId && hoverSlotId && (() => {
-          const isStaging = hoverSlotId.startsWith('stg-');
-          const slot = isStaging
-            ? stagingSlots.find(s => s.id === hoverSlotId)
-            : trailer.slots.find(s => s.id === hoverSlotId);
-          if (!slot) return null;
-          const localX = isStaging ? (stagingSlotPosX[hoverSlotId] ?? 0) : (slotPosX[hoverSlotId] ?? 0);
-          const worldX = isStaging ? stagingOffsetX + localX : localX;
-          const sw = isStaging
-            ? (stagingSlotWidths[slot.tier]?.[slot.position] ?? 0.35)
-            : (slotWidths[slot.tier]?.[slot.position] ?? 0.35);
-          return (
-            <mesh position={[worldX, slot.slung ? slingY(slot.tier, trailer.tiers) : tierY(slot.tier, trailer.tiers), 0]}>
-              <boxGeometry args={[sw + 0.06, 0.018, trailerLength * 0.88]} />
-              <meshStandardMaterial
-                color="#facc15" emissive="#facc15" emissiveIntensity={1.5}
-                transparent opacity={0.65} depthWrite={false}
-              />
-            </mesh>
-          );
-        })()}
-
-        {/* Trailer boats */}
-        {trailer.slots.map(slot => {
-          const boat = assignment[slot.id] ? boatById[assignment[slot.id]] : null;
+        {/* Placed boats on trailer */}
+        {placements.map(p => {
+          const boat = boatById[p.boatId];
           if (!boat) return null;
-          const posY = slot.slung
-            ? slingY(slot.tier, trailer.tiers)
-            : tierY(slot.tier, trailer.tiers) + 0.03;
+          const isDragging = dragId === p.id;
+          const dispX = isDragging && preview ? preview.xM        : p.xM;
+          const dispZ = isDragging && preview ? preview.zCenterM  : p.zCenterM;
+          const posY  = p.slung ? slingY(p.tier, trailer.tiers) : tierY(p.tier, trailer.tiers) + 0.03;
           return (
             <ShellMesh
-              key={slot.id}
+              key={p.id}
               boat={boat}
-              posX={slotPosX[slot.id] ?? 0}
+              posX={dispX}
               posY={posY}
-              slung={slot.slung}
+              posZ={dispZ}
+              slung={p.slung}
               colorIndex={boatColorIdx[boat.id]}
-              isSelected={dragBoatId === boat.id}
-              onDragStart={handleDragStart}
+              isSelected={isDragging}
+              onPointerDown={(e) => { if (!dragId) startDrag(e, p); }}
             />
           );
         })}
 
+        {/* Invisible drag-capture plane — absorbs pointer move/up while dragging */}
+        {dragId && dragOffset.current !== null && (
+          <mesh
+            position={[0, tierY(dragOffset.current.tier, trailer.tiers) + 0.03, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            onPointerMove={onDragMove}
+            onPointerUp={onDragEnd}
+          >
+            <planeGeometry args={[200, 200]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          </mesh>
+        )}
+
         {/* Staging rack */}
         <StagingRack
-          tiers={stagingTierCount}
+          tiers={STAGING_TIERS}
           rackLength={6.0}
           tierSlotXs={stagingTierSlotXs}
           slotWidths={stagingSlotWidths}
           offsetX={stagingOffsetX}
         />
 
-        {/* Boats on staging rack */}
-        {stagingSlots.map(slot => {
-          const boat = assignment[slot.id] ? boatById[assignment[slot.id]] : null;
-          if (!boat) return null;
-          return (
-            <ShellMesh
-              key={slot.id}
-              boat={boat}
-              posX={stagingOffsetX + (stagingSlotPosX[slot.id] ?? 0)}
-              posY={tierY(slot.tier, stagingTierCount) + 0.03}
-              colorIndex={boatColorIdx[boat.id]}
-              isSelected={dragBoatId === boat.id}
-              onDragStart={handleDragStart}
-            />
-          );
-        })}
-
+        {/* Unplaced boats on staging rack (not draggable) */}
+        {stagingGrid.map(({ boat, tier, x }) => (
+          <ShellMesh
+            key={boat.id}
+            boat={boat}
+            posX={stagingOffsetX + x}
+            posY={tierY(tier, STAGING_TIERS) + 0.03}
+            posZ={0}
+            colorIndex={boatColorIdx[boat.id]}
+            isSelected={false}
+            onPointerDown={(e) => e.stopPropagation()}
+          />
+        ))}
       </group>
     </>
   );
 }
 
-// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Page ---------------------------------------------------------------------
 export default function Visualizer3D() {
-  const { boats, assignment, assign } = useStore();
-  const assigned = Object.keys(assignment).length;
+  const { boats, placements } = useStore();
 
-  const [dragBoatId,  setDragBoatId]  = useState<string | null>(null);
-  const [hoverSlotId, setHoverSlotId] = useState<string | null>(null);
-
-  // Release anywhere â†’ commit the move (or cancel if no slot hovered)
-  const handlePointerUp = useCallback(() => {
-    if (dragBoatId && hoverSlotId) assign(hoverSlotId, dragBoatId);
-    setDragBoatId(null);
-    setHoverSlotId(null);
-  }, [dragBoatId, hoverSlotId, assign]);
-
-  // Escape cancels mid-drag
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setDragBoatId(null); setHoverSlotId(null); }
-    };
+    const onKey = (e: KeyboardEvent) => { void e; };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   return (
-    <div
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}
-      onPointerUp={handlePointerUp}
-    >
-      {assigned === 0 && (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      {placements.length === 0 && (
         <div style={{
           position: 'absolute', top: '50%', left: '50%',
           transform: 'translate(-50%,-50%)',
@@ -1274,34 +1188,14 @@ export default function Visualizer3D() {
         </div>
       )}
 
-      {/* Drag-in-progress banner */}
-      {dragBoatId && (
-        <div style={{
-          position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
-          zIndex: 20, pointerEvents: 'none',
-          background: 'rgba(250,204,21,0.92)', color: '#1a1a00',
-          fontSize: 12, fontWeight: 600,
-          padding: '5px 16px', borderRadius: 99,
-        }}>
-          {hoverSlotId ? 'Release to drop here' : 'Hover a slot Â· Esc to cancel'}
-        </div>
-      )}
-
       <Canvas
         dpr={[1, 1]}
-        style={{ flex: 1, background: '#0f172a', cursor: dragBoatId ? 'grabbing' : 'default' }}
+        style={{ flex: 1, background: '#0f172a' }}
         gl={{ antialias: false }}
-        onCreated={({ gl }) => {
-          gl.shadowMap.enabled = false;
-        }}
+        onCreated={({ gl }) => { gl.shadowMap.enabled = false; }}
       >
         <Suspense fallback={null}>
-          <Scene
-            dragBoatId={dragBoatId}
-            setDragBoatId={setDragBoatId}
-            hoverSlotId={hoverSlotId}
-            setHoverSlotId={setHoverSlotId}
-          />
+          <Scene />
         </Suspense>
       </Canvas>
 
@@ -1310,10 +1204,8 @@ export default function Visualizer3D() {
         background: 'rgba(0,0,0,0.55)', color: 'white', fontSize: 11,
         padding: '4px 12px', borderRadius: 99, pointerEvents: 'none',
       }}>
-        {dragBoatId ? 'Move pointer to a slot Â· Release to drop Â· Esc to cancel' : 'Click a boat to move it Â· Drag to orbit Â· Pinch to zoom'}
+        Drag to orbit · Pinch to zoom
       </div>
     </div>
   );
 }
-
-
