@@ -17,6 +17,12 @@ export interface BoatPlacement {
   slung?: boolean;
 }
 
+export interface TowerGroup {
+  id: string;
+  count: number;    // 1–4 towers side by side (perpendicular to trailer)
+  xCenter: number;  // lateral centre from trailer centreline (m); 0 = dead-centre
+}
+
 export interface Trailer {
   id: string;
   name: string;
@@ -24,5 +30,5 @@ export interface Trailer {
   tiers: number;
   trailerWidthM: number;
   tongueLengthM: number;
-  towerCount: number;
+  towerGroups: TowerGroup[];
 }

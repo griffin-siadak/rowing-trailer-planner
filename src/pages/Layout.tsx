@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../store';
-import { computeTowerZs, snapZ, isValidZ, footprintsOverlap } from '../utils';
+import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers } from '../utils';
 import { SHELL_DB } from '../shellDatabase';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
@@ -9,21 +9,22 @@ const BOAT_COLORS = [
   '#db2777', '#0891b2', '#65a30d', '#ea580c', '#4f46e5',
 ];
 
-const MIN_OVERHANG = 1.5; // minimum canvas beyond each trailer end
-const COL_GAP  = 0.5;  // m gap between tier columns
-const SVG_PAD  = 0.35; // m padding around all columns
-const HDR_H    = 0.45; // m header zone above overhang (for tier labels)
+const CLASS_ORDER = ['8+', '4+', '4-', '4x', '2-', '2x', '1x'];
+
+const MIN_OVERHANG = 1.5;
+const COL_GAP  = 0.5;
+const SVG_PAD  = 0.35;
+const HDR_H    = 0.45;
 
 function colX(tier: number, trayW: number) {
   return SVG_PAD + tier * (trayW + COL_GAP);
 }
 
-// Rowing shell silhouette centred at origin, bow at top (−y), stern at bottom (+y)
 function boatOutlinePath(w: number, l: number): string {
   const hw = w / 2;
   const hl = l / 2;
-  const bt = hl * 0.13; // bow taper length
-  const st = hl * 0.17; // stern taper length (slightly blunter)
+  const bt = hl * 0.13;
+  const st = hl * 0.17;
   return (
     `M 0,${-hl} ` +
     `C ${hw * 0.10},${-hl + bt} ${hw},${-hl + bt * 4} ${hw},0 ` +
@@ -33,12 +34,10 @@ function boatOutlinePath(w: number, l: number): string {
   );
 }
 
-// world zCenterM (+ = front) → SVG y
 function zToSvgY(zM: number, halfLen: number, overhang: number) {
   return HDR_H + overhang + halfLen - zM;
 }
 
-// SVG y → world zCenterM
 function svgYToZ(svgY: number, halfLen: number, overhang: number) {
   return HDR_H + overhang + halfLen - svgY;
 }
@@ -92,11 +91,12 @@ const btnSecondary: React.CSSProperties = {
 export default function Layout() {
   const {
     trailer, boats, placements,
-    addPlacement, movePlacement, setSlung, removePlacement, clearPlacements,
+    addPlacement, movePlacement, setSlung, removePlacement, clearPlacements, clearAll,
     autoLayout, addBoat,
   } = useStore();
 
-  const towerZs = computeTowerZs(trailer);
+  const towerZs  = computeTowerZs(trailer);
+  const towerXZs = computeTowerXZs(trailer);
   const halfLen = trailer.bedLengthM / 2;
   const halfW   = trailer.trailerWidthM / 2;
   const bedLen  = trailer.bedLengthM;
@@ -110,7 +110,6 @@ export default function Layout() {
   const [pendingBoatId, setPendingBoatId] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
 
-  // Overhang buffer: enough to show the longest boat overhanging both ends
   const maxBoatLen = boats.reduce((m, b) => Math.max(m, b.lengthM), 0);
   const overhang = Math.max(MIN_OVERHANG, (maxBoatLen - bedLen) / 2 + 0.5);
 
@@ -121,9 +120,9 @@ export default function Layout() {
     const boat = boatById[boatId];
     if (!boat) return false;
     if (!isValidZ(zM, boat.lengthM, towerZs)) return false;
+    if (!boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) return false;
     return !placements.some(p => {
       if (p.tier !== tier || p.id === excludeId) return false;
-      // slung and non-slung are at different heights — no XZ conflict between them
       if (!!p.slung !== isSlung) return false;
       const pb = boatById[p.boatId];
       if (!pb) return false;
@@ -167,18 +166,20 @@ export default function Layout() {
     if (!drag) return;
     const boat = boatById[drag.boatId];
     if (!boat) return;
-    const { xM: ptrX, zM: ptrZ } = svgPtToScene(e.currentTarget, e.clientX, e.clientY, trayW, halfLen, halfW, drag.tier, overhang);
+    const svgEl = e.currentTarget;
+    const newTier = tierFromSvgX(svgEl, e.clientX, trayW, trailer.tiers);
+    const { xM: ptrX, zM: ptrZ } = svgPtToScene(svgEl, e.clientX, e.clientY, trayW, halfLen, halfW, newTier, overhang);
     const rawZ = ptrZ - drag.offsetZ;
     const rawX = ptrX - drag.offsetX;
     const snZ  = snapZ(rawZ, boat.lengthM, towerZs, halfLen);
     const clX  = Math.max(-halfW + boat.widthM / 2, Math.min(halfW - boat.widthM / 2, rawX));
-    const valid = isOk(drag.tier, drag.boatId, clX, snZ, drag.slung, drag.placementId);
-    setDrag(d => d ? { ...d, previewX: clX, previewZ: snZ, valid } : null);
+    const valid = isOk(newTier, drag.boatId, clX, snZ, drag.slung, drag.placementId);
+    setDrag(d => d ? { ...d, tier: newTier, previewX: clX, previewZ: snZ, valid } : null);
   }
 
   function handlePointerUp() {
     if (!drag) return;
-    if (drag.valid) movePlacement(drag.placementId, { xM: drag.previewX, zCenterM: drag.previewZ });
+    if (drag.valid) movePlacement(drag.placementId, { tier: drag.tier, xM: drag.previewX, zCenterM: drag.previewZ });
     setDrag(null);
   }
 
@@ -196,13 +197,29 @@ export default function Layout() {
     );
   }
 
+  // Group unplaced boats by class
+  const classGroups: Record<string, typeof unplacedBoats> = {};
+  for (const boat of unplacedBoats) {
+    const cls = boat.boatClass ?? 'Other';
+    if (!classGroups[cls]) classGroups[cls] = [];
+    classGroups[cls].push(boat);
+  }
+  const classKeys = [
+    ...CLASS_ORDER.filter(c => classGroups[c]),
+    ...Object.keys(classGroups).filter(c => !CLASS_ORDER.includes(c)),
+  ];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       {/* Toolbar */}
       <div style={{ padding: '10px 16px', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 8 }}>
         <button onClick={autoLayout} style={btnPrimary}>✨ Auto-Arrange</button>
         <button onClick={addRandom} style={btnSecondary}>+ 10 Random</button>
-        <button onClick={clearPlacements} style={{ ...btnSecondary, color: '#64748b', borderColor: '#cbd5e1' }}>Clear</button>
+        <button onClick={clearPlacements} style={{ ...btnSecondary, color: '#64748b', borderColor: '#cbd5e1' }}>Clear Layout</button>
+        <button
+          onClick={() => { if (window.confirm('Remove all boats and clear layout?')) clearAll(); }}
+          style={{ ...btnSecondary, color: '#b91c1c', borderColor: '#fca5a5' }}
+        >Clear All</button>
       </div>
 
       {pendingBoatId && (
@@ -212,163 +229,207 @@ export default function Layout() {
         </div>
       )}
 
-      {/* SVG — fills remaining height, scrolls horizontally for many tiers */}
+      {/* SVG */}
       <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
-          <svg
-            viewBox={`0 0 ${svgW} ${svgH}`}
-            style={{ display: 'block', height: '100%', width: 'auto', minWidth: '100%', cursor: pendingBoatId ? 'crosshair' : 'default', touchAction: 'none' }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-          >
-            {Array.from({ length: trailer.tiers }, (_, t) => {
-              const cx = colX(t, trayW);
-              return (
-                <g key={t}>
-                  {/* Front overhang zone */}
-                  <rect x={cx} y={HDR_H} width={trayW} height={overhang} fill="#dde3ea" />
-                  {/* Bed zone */}
-                  <rect x={cx} y={HDR_H + overhang} width={trayW} height={bedLen} fill="#e8edf3" />
-                  {/* Rear overhang zone */}
-                  <rect x={cx} y={HDR_H + overhang + bedLen} width={trayW} height={overhang} fill="#dde3ea" />
-                  {/* Column outline */}
-                  <rect x={cx} y={HDR_H} width={trayW} height={overhang * 2 + bedLen}
-                    fill="none" stroke="#94a3b8" strokeWidth={0.03} />
-                  {/* Bed boundary lines */}
-                  <line x1={cx} y1={HDR_H + overhang} x2={cx + trayW} y2={HDR_H + overhang}
-                    stroke="#475569" strokeWidth={0.05} />
-                  <line x1={cx} y1={HDR_H + overhang + bedLen} x2={cx + trayW} y2={HDR_H + overhang + bedLen}
-                    stroke="#475569" strokeWidth={0.05} />
-                  {/* Tier label */}
-                  <text x={cx + trayW / 2} y={HDR_H * 0.52} textAnchor="middle" dominantBaseline="middle"
-                    fontSize={0.24} fontWeight="700" fill="#334155">
-                    {TIER_NAMES[t] ?? `Tier ${t + 1}`}
-                  </text>
-                  {/* Front / Rear labels in overhang zones */}
-                  <text x={cx + trayW / 2} y={HDR_H + overhang * 0.3} textAnchor="middle" dominantBaseline="middle"
-                    fontSize={0.18} fill="#64748b">▲ Front</text>
-                  <text x={cx + trayW / 2} y={HDR_H + overhang + bedLen + overhang * 0.7} textAnchor="middle" dominantBaseline="middle"
-                    fontSize={0.18} fill="#64748b">Rear ▼</text>
-                  {/* Tower lines (horizontal dashes) */}
-                  {towerZs.map((tz, i) => {
-                    const lineY = zToSvgY(tz, halfLen, overhang);
-                    return (
-                      <line key={i}
-                        x1={cx} y1={lineY} x2={cx + trayW} y2={lineY}
-                        stroke="#64748b" strokeWidth={0.03} strokeDasharray="0.14 0.08"
-                      />
-                    );
-                  })}
-                  {/* Boats */}
-                  {placements.filter(p => p.tier === t).map(p => {
-                    const boat = boatById[p.boatId];
-                    if (!boat) return null;
-                    const isDragging = drag?.placementId === p.id;
-                    const dispX = isDragging ? drag!.previewX : p.xM;
-                    const dispZ = isDragging ? drag!.previewZ : p.zCenterM;
-                    const isSlung = !!p.slung;
-                    const color = BOAT_COLORS[boatColorIdx[p.boatId] % BOAT_COLORS.length];
-                    const invalid = isDragging ? !drag!.valid : !isOk(t, p.boatId, dispX, dispZ, isSlung, p.id);
-                    const boatCX = cx + (halfW - dispX);
-                    const boatCY = zToSvgY(dispZ, halfLen, overhang);
-                    const rmX = boatCX + boat.widthM * 0.38;
-                    const rmY = boatCY - boat.lengthM * 0.44;
-                    const slX = boatCX - boat.widthM * 0.38;
-                    const slY = rmY;
-                    // slung boats: flip vertically + dashed outline + reduced opacity
-                    const shapeTransform = isSlung
-                      ? `translate(${boatCX},${boatCY}) scale(1,-1)`
-                      : `translate(${boatCX},${boatCY})`;
-                    return (
-                      <g key={p.id} data-pid={p.id} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
-                        <path
-                          data-pid={p.id}
-                          d={boatOutlinePath(boat.widthM, boat.lengthM)}
-                          transform={shapeTransform}
-                          fill={invalid ? '#fca5a5' : color}
-                          fillOpacity={isDragging ? 0.55 : isSlung ? 0.60 : 0.88}
-                          stroke={invalid ? '#dc2626' : isSlung ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.7)'}
-                          strokeWidth={0.022}
-                          strokeDasharray={isSlung ? '0.12 0.07' : undefined}
-                        />
-                        <text
-                          x={boatCX} y={boatCY}
-                          textAnchor="middle" dominantBaseline="middle"
-                          fontSize={Math.min(0.20, boat.widthM * 0.65)}
-                          fill="white" fontWeight="bold"
-                          style={{ pointerEvents: 'none', userSelect: 'none' }}
-                        >
-                          {boat.boatClass}
-                        </text>
-                        {/* Sling toggle button */}
-                        <circle
-                          cx={slX} cy={slY} r={0.08}
-                          fill={isSlung ? '#7c3aed' : '#64748b'}
-                          style={{ cursor: 'pointer' }}
-                          onPointerDown={e => e.stopPropagation()}
-                          onClick={e => { e.stopPropagation(); setSlung(p.id, !isSlung); }}
-                        />
-                        <text
-                          x={slX} y={slY}
-                          textAnchor="middle" dominantBaseline="middle"
-                          fontSize={0.10} fill="white"
-                          style={{ pointerEvents: 'none', userSelect: 'none' }}
-                        >{isSlung ? '⌃' : '⌄'}</text>
-                        {/* Remove ✕ button */}
-                        <circle
-                          cx={rmX} cy={rmY} r={0.08}
-                          fill="#ef4444" style={{ cursor: 'pointer' }}
-                          onPointerDown={e => e.stopPropagation()}
-                          onClick={e => { e.stopPropagation(); removePlacement(p.id); }}
-                        />
-                        <text
-                          x={rmX} y={rmY}
-                          textAnchor="middle" dominantBaseline="middle"
-                          fontSize={0.09} fill="white"
-                          style={{ pointerEvents: 'none', userSelect: 'none' }}
-                        >×</text>
-                      </g>
-                    );
-                  })}
-                </g>
-              );
-            })}
-          </svg>
-      </div>
-
-      {/* Boathouse — fixed strip at bottom */}
-      <div style={{ borderTop: '1px solid #e2e8f0', padding: '8px 12px', background: 'white' }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          Boathouse ({unplacedBoats.length})
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 36 }}>
-          {unplacedBoats.map(boat => {
-            const color = BOAT_COLORS[boatColorIdx[boat.id] % BOAT_COLORS.length];
-            const sel   = pendingBoatId === boat.id;
+        <svg
+          viewBox={`0 0 ${svgW} ${svgH}`}
+          style={{ display: 'block', height: '100%', width: 'auto', minWidth: '100%', cursor: pendingBoatId ? 'crosshair' : 'default', touchAction: 'none' }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        >
+          {Array.from({ length: trailer.tiers }, (_, t) => {
+            const cx = colX(t, trayW);
+            const isDragTarget = drag?.tier === t;
             return (
-              <div
-                key={boat.id}
-                onClick={() => setPendingBoatId(sel ? null : boat.id)}
-                style={{
-                  background: sel ? '#dbeafe' : color,
-                  color: sel ? '#1d4ed8' : 'white',
-                  border: sel ? '2px solid #1d4ed8' : '2px solid transparent',
-                  borderRadius: 6, padding: '3px 7px',
-                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontSize: 9, opacity: 0.75 }}>{boat.boatClass} · {boat.lengthM}m</div>
-                {boat.name}
-              </div>
+              <g key={t}>
+                <rect x={cx} y={HDR_H} width={trayW} height={overhang} fill="#dde3ea" />
+                <rect x={cx} y={HDR_H + overhang} width={trayW} height={bedLen} fill={isDragTarget ? '#e0eaff' : '#e8edf3'} />
+                <rect x={cx} y={HDR_H + overhang + bedLen} width={trayW} height={overhang} fill="#dde3ea" />
+                <rect x={cx} y={HDR_H} width={trayW} height={overhang * 2 + bedLen}
+                  fill="none" stroke={isDragTarget ? '#93c5fd' : '#94a3b8'} strokeWidth={isDragTarget ? 0.06 : 0.03} />
+                <line x1={cx} y1={HDR_H + overhang} x2={cx + trayW} y2={HDR_H + overhang}
+                  stroke="#475569" strokeWidth={0.05} />
+                <line x1={cx} y1={HDR_H + overhang + bedLen} x2={cx + trayW} y2={HDR_H + overhang + bedLen}
+                  stroke="#475569" strokeWidth={0.05} />
+                <text x={cx + trayW / 2} y={HDR_H * 0.52} textAnchor="middle" dominantBaseline="middle"
+                  fontSize={0.24} fontWeight="700" fill="#334155">
+                  {TIER_NAMES[t] ?? `Tier ${t + 1}`}
+                </text>
+                <text x={cx + trayW / 2} y={HDR_H + overhang * 0.3} textAnchor="middle" dominantBaseline="middle"
+                  fontSize={0.18} fill="#64748b">▲ Front</text>
+                <text x={cx + trayW / 2} y={HDR_H + overhang + bedLen + overhang * 0.7} textAnchor="middle" dominantBaseline="middle"
+                  fontSize={0.18} fill="#64748b">Rear ▼</text>
+                {towerZs.map((tz, i) => {
+                  const lineY = zToSvgY(tz, halfLen, overhang);
+                  return (
+                    <line key={i}
+                      x1={cx} y1={lineY} x2={cx + trayW} y2={lineY}
+                      stroke="#64748b" strokeWidth={0.03} strokeDasharray="0.14 0.08"
+                    />
+                  );
+                })}
+                {placements.filter(p => p.tier === t).map(p => {
+                  const boat = boatById[p.boatId];
+                  if (!boat) return null;
+                  const isDragging = drag?.placementId === p.id;
+                  const dispX = isDragging ? drag!.previewX : p.xM;
+                  const dispZ = isDragging ? drag!.previewZ : p.zCenterM;
+                  const renderTier = isDragging ? drag!.tier : t;
+                  if (renderTier !== t) return null;
+                  const isSlung = !!p.slung;
+                  const color = BOAT_COLORS[boatColorIdx[p.boatId] % BOAT_COLORS.length];
+                  const invalid = isDragging ? !drag!.valid : !isOk(t, p.boatId, dispX, dispZ, isSlung, p.id);
+                  const boatCX = cx + (halfW - dispX);
+                  const boatCY = zToSvgY(dispZ, halfLen, overhang);
+                  const rmX = boatCX + boat.widthM * 0.38;
+                  const rmY = boatCY - boat.lengthM * 0.44;
+                  const slX = boatCX - boat.widthM * 0.38;
+                  const slY = rmY;
+                  const shapeTransform = isSlung
+                    ? `translate(${boatCX},${boatCY}) scale(1,-1)`
+                    : `translate(${boatCX},${boatCY})`;
+                  return (
+                    <g key={p.id} data-pid={p.id} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
+                      <path
+                        data-pid={p.id}
+                        d={boatOutlinePath(boat.widthM, boat.lengthM)}
+                        transform={shapeTransform}
+                        fill={invalid ? '#fca5a5' : color}
+                        fillOpacity={isDragging ? 0.55 : isSlung ? 0.60 : 0.88}
+                        stroke={invalid ? '#dc2626' : isSlung ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.7)'}
+                        strokeWidth={0.022}
+                        strokeDasharray={isSlung ? '0.12 0.07' : undefined}
+                      />
+                      <text
+                        x={boatCX} y={boatCY}
+                        textAnchor="middle" dominantBaseline="middle"
+                        fontSize={Math.min(0.20, boat.widthM * 0.65)}
+                        fill="white" fontWeight="bold"
+                        style={{ pointerEvents: 'none', userSelect: 'none' }}
+                      >
+                        {boat.boatClass}
+                      </text>
+                      <circle
+                        cx={slX} cy={slY} r={0.08}
+                        fill={isSlung ? '#7c3aed' : '#64748b'}
+                        style={{ cursor: 'pointer' }}
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={e => { e.stopPropagation(); setSlung(p.id, !isSlung); }}
+                      />
+                      <text
+                        x={slX} y={slY}
+                        textAnchor="middle" dominantBaseline="middle"
+                        fontSize={0.10} fill="white"
+                        style={{ pointerEvents: 'none', userSelect: 'none' }}
+                      >{isSlung ? '⌃' : '⌄'}</text>
+                      <circle
+                        cx={rmX} cy={rmY} r={0.08}
+                        fill="#ef4444" style={{ cursor: 'pointer' }}
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={e => { e.stopPropagation(); removePlacement(p.id); }}
+                      />
+                      <text
+                        x={rmX} y={rmY}
+                        textAnchor="middle" dominantBaseline="middle"
+                        fontSize={0.09} fill="white"
+                        style={{ pointerEvents: 'none', userSelect: 'none' }}
+                      >×</text>
+                    </g>
+                  );
+                })}
+              </g>
             );
           })}
-          {unplacedBoats.length === 0 && boats.length > 0 && (
-            <span style={{ fontSize: 12, color: '#94a3b8', alignSelf: 'center' }}>All boats placed</span>
-          )}
-          {boats.length === 0 && (
-            <span style={{ fontSize: 12, color: '#94a3b8', alignSelf: 'center' }}>Add boats in the Boats tab first.</span>
-          )}
+          {/* Dragged boat ghost rendered in its current tier column */}
+          {drag && (() => {
+            const boat = boatById[drag.boatId];
+            if (!boat) return null;
+            const p = placements.find(pl => pl.id === drag.placementId);
+            if (!p) return null;
+            if (drag.tier === p.tier) return null; // already rendered above
+            const cx = colX(drag.tier, trayW);
+            const color = BOAT_COLORS[boatColorIdx[drag.boatId] % BOAT_COLORS.length];
+            const boatCX = cx + (halfW - drag.previewX);
+            const boatCY = zToSvgY(drag.previewZ, halfLen, overhang);
+            return (
+              <g key="drag-ghost" style={{ pointerEvents: 'none' }}>
+                <path
+                  d={boatOutlinePath(boat.widthM, boat.lengthM)}
+                  transform={`translate(${boatCX},${boatCY})`}
+                  fill={drag.valid ? color : '#fca5a5'}
+                  fillOpacity={0.55}
+                  stroke={drag.valid ? 'rgba(255,255,255,0.7)' : '#dc2626'}
+                  strokeWidth={0.022}
+                />
+                <text
+                  x={boatCX} y={boatCY}
+                  textAnchor="middle" dominantBaseline="middle"
+                  fontSize={Math.min(0.20, boat.widthM * 0.65)}
+                  fill="white" fontWeight="bold"
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}
+                >{boat.boatClass}</text>
+              </g>
+            );
+          })()}
+        </svg>
+      </div>
+
+      {/* Boathouse — columned by boat class */}
+      <div style={{ borderTop: '1px solid #e2e8f0', background: 'white', flexShrink: 0 }}>
+        <div style={{ padding: '6px 12px 4px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Boathouse ({unplacedBoats.length})
+          </span>
         </div>
+        {unplacedBoats.length === 0 && boats.length > 0 && (
+          <div style={{ padding: '4px 12px 8px', fontSize: 12, color: '#94a3b8' }}>All boats placed on trailer</div>
+        )}
+        {boats.length === 0 && (
+          <div style={{ padding: '4px 12px 8px', fontSize: 12, color: '#94a3b8' }}>Add boats in the Boats tab first.</div>
+        )}
+        {classKeys.length > 0 && (
+          <div style={{ display: 'flex', overflowX: 'auto', gap: 0, borderTop: '1px solid #f1f5f9' }}>
+            {classKeys.map((cls, ci) => (
+              <div key={cls} style={{
+                minWidth: 110, flexShrink: 0,
+                borderRight: ci < classKeys.length - 1 ? '1px solid #e2e8f0' : undefined,
+                padding: '6px 8px',
+              }}>
+                <div style={{
+                  fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase',
+                  letterSpacing: '0.4px', marginBottom: 4, textAlign: 'center',
+                }}>
+                  {cls}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {classGroups[cls].map(boat => {
+                    const color = BOAT_COLORS[boatColorIdx[boat.id] % BOAT_COLORS.length];
+                    const sel = pendingBoatId === boat.id;
+                    return (
+                      <div
+                        key={boat.id}
+                        onClick={() => setPendingBoatId(sel ? null : boat.id)}
+                        title={`${boat.name} — ${boat.lengthM}m`}
+                        style={{
+                          background: sel ? '#dbeafe' : color,
+                          color: sel ? '#1d4ed8' : 'white',
+                          border: sel ? '2px solid #1d4ed8' : '2px solid transparent',
+                          borderRadius: 5, padding: '3px 6px',
+                          fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <span style={{ opacity: 0.75, fontSize: 9 }}>{boat.lengthM}m · </span>
+                        {boat.name}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

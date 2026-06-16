@@ -4,10 +4,52 @@ export function computeTowerZs(trailer: Trailer): number[] {
   const halfLen = trailer.bedLengthM / 2;
   const towerInset = 0.20;
   const towerSpan = trailer.bedLengthM - 2 * towerInset;
-  const n = Math.max(2, trailer.towerCount);
+  const n = Math.max(2, trailer.towerGroups.length);
   return Array.from({ length: n }, (_, i) =>
     halfLen - towerInset - (i / (n - 1)) * towerSpan
   );
+}
+
+// X positions for all posts within a tower group.
+// count=1 → [xCenter]; count=2 → auto-thirds; 3-4 → fixed pitch.
+export function getTowerXsForGroup(count: number, xCenter: number, trailerWidthM: number): number[] {
+  if (count === 1) return [xCenter];
+  if (count === 2) {
+    const offset = trailerWidthM / 6;
+    return [-offset, offset];
+  }
+  const pitch = 0.28;
+  const half = (count - 1) * pitch / 2;
+  return Array.from({ length: count }, (_, i) => xCenter - half + i * pitch);
+}
+
+// All tower post (x, z) positions for a trailer.
+export function computeTowerXZs(trailer: Trailer): { x: number; z: number }[] {
+  const towerZs = computeTowerZs(trailer);
+  const result: { x: number; z: number }[] = [];
+  trailer.towerGroups.forEach((group, gi) => {
+    const tz = towerZs[gi];
+    if (tz === undefined) return;
+    getTowerXsForGroup(group.count, group.xCenter, trailer.trailerWidthM).forEach(tx => {
+      result.push({ x: tx, z: tz });
+    });
+  });
+  return result;
+}
+
+// Returns false if any tower post falls within the boat's hull footprint.
+// gap: minimum clearance between hull edge and tower post centre (m).
+export function boatClearsTowers(
+  boatX: number, boatZ: number, boatW: number, boatL: number,
+  towerXZs: { x: number; z: number }[],
+  gap = 0.06,
+): boolean {
+  for (const { x: tx, z: tz } of towerXZs) {
+    if (tz <= boatZ - boatL / 2 || tz >= boatZ + boatL / 2) continue;
+    const hw = hullHalfWidth(tz - boatZ, boatL, boatW);
+    if (Math.abs(boatX - tx) < hw + gap) return false;
+  }
+  return true;
 }
 
 export function isValidZ(zCenter: number, boatLength: number, towerZs: number[]): boolean {
@@ -40,22 +82,17 @@ export function snapZ(
   }
 
   if (bestDist === Infinity) {
-    return Math.max(-bedHalfLen + boatLength / 2, Math.min(bedHalfLen - boatLength / 2, dragZ));
+    return Math.max(-(bedHalfLen + 5.0), Math.min(bedHalfLen + 5.0, dragZ));
   }
   return bestCenter;
 }
 
-// Approximate hull half-width at a given distance from the boat's centre along Z.
-// Uses a power profile (exponent < 0.5 → sharper tips than an ellipse) to match
-// the bezier hull shape used in the 2D and 3D views.
 function hullHalfWidth(dz: number, l: number, w: number): number {
-  const t = (2 * dz) / l; // −1 = bow tip, +1 = stern tip
+  const t = (2 * dz) / l;
   if (Math.abs(t) >= 1) return 0;
   return (w / 2) * Math.pow(1 - t * t, 0.38);
 }
 
-// Shape-aware overlap: samples the tapered hull profile across the Z overlap zone
-// so boats can be placed closer at bow/stern than the full beam would allow.
 export function footprintsOverlap(
   ax: number, az: number, aw: number, al: number,
   bx: number, bz: number, bw: number, bl: number,
@@ -63,7 +100,7 @@ export function footprintsOverlap(
 ): boolean {
   const overlapMin = Math.max(az - al / 2, bz - bl / 2);
   const overlapMax = Math.min(az + al / 2, bz + bl / 2);
-  if (overlapMin >= overlapMax) return false; // no longitudinal overlap at all
+  if (overlapMin >= overlapMax) return false;
 
   const dx = Math.abs(ax - bx);
   const N = 10;
