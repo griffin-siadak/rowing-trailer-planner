@@ -205,7 +205,7 @@ export default function BoatRoster() {
         <div style={{ marginBottom: 10 }}>
           <label style={S.label}>Owner</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            {([['Home', false], ['Guest', true]] as const).map(([lbl, val]) => (
+            {([['Club', false], ['Guest', true]] as const).map(([lbl, val]) => (
               <button
                 key={lbl}
                 type="button"
@@ -261,7 +261,7 @@ export default function BoatRoster() {
         </p>
       )}
 
-      {renderSection('🏠 Home Boats', homeBoats, '#1d4ed8')}
+      {renderSection('🏠 Club Boats', homeBoats, '#1d4ed8')}
       {renderSection('👤 Guest Boats', guestBoats, '#d97706')}
     </div>
   );

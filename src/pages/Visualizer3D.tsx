@@ -1185,7 +1185,7 @@ function Scene() {
             rackLength={6.0}
             armHW={stagingArmHW}
             offsetX={homeRackX(ri)}
-            label={ri === 0 ? 'HOME' : undefined}
+            label={ri === 0 ? 'CLUB' : undefined}
           />
         ))}
 
