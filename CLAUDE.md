@@ -9,6 +9,8 @@ These rules travel with the repo so they apply on any computer.
   on to the next one. Don't batch unrelated changes into one commit.
 - "Each change" = each logical task requested (e.g. "add the bow limit"), not every
   individual file edit within it. Keep history readable.
+- **Blanket permission to commit** — no need to ask before committing. (Pushing to
+  remote and deploying to Pages still wait for an explicit ask.)
 - Stage only the relevant source files under `src/`. Leave platform/build scaffolding
   untracked unless explicitly asked: `.claude/`, `android/`, `ios/`, `capacitor.config.ts`.
 - End commit messages with the `Co-Authored-By` trailer.
