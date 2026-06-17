@@ -11,13 +11,14 @@ const DEFAULT_TRAILER: Trailer = {
   id: 'default',
   name: 'My Trailer',
   bedLengthM: 10.97,
-  tiers: 3,
+  tiers: 4,
   trailerWidthM: 2.44,
   tongueLengthM: 2.0,
   towerGroups: [
-    { id: 'tg1', count: 1, xCenter: 0 },
-    { id: 'tg2', count: 1, xCenter: 0 },
-    { id: 'tg3', count: 1, xCenter: 0 },
+    { id: 'tg1', count: 2, xCenter: 0 },
+    { id: 'tg2', count: 2, xCenter: 0 },
+    { id: 'tg3', count: 2, xCenter: 0 },
+    { id: 'tg4', count: 2, xCenter: 0 },
   ],
 };
 
