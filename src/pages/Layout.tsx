@@ -79,6 +79,134 @@ interface DragState {
   valid: boolean;
 }
 
+// End-on hull silhouette: flat gunwale across the top, sides curving in to a
+// rounded keel at the bottom centre. Centred at origin, spanning w × h.
+function hullEndPath(w: number, h: number): string {
+  const hw = w / 2;
+  const top = -h / 2;
+  const bot = h / 2;
+  return (
+    `M ${-hw},${top} ` +
+    `L ${hw},${top} ` +
+    `C ${hw},${top + h * 0.55} ${hw * 0.34},${bot} 0,${bot} ` +
+    `C ${-hw * 0.34},${bot} ${-hw},${top + h * 0.55} ${-hw},${top} Z`
+  );
+}
+
+// ─── End view (cross-section looking down the trailer length) ───────────────
+const EV_PAD     = 0.12;
+const EV_HDR     = 0.24;
+const EV_TOP_H   = 0.38;  // top of rail — boats sit here
+const EV_RAIL_T  = 0.05;  // thin rail bar between top and underside
+const EV_UNDER_H = 0.28;  // underside of rail — slung boats hang here
+const EV_UNIT    = EV_TOP_H + EV_RAIL_T + EV_UNDER_H; // total height per tier
+
+function EndView({ label, placements, boatById, boatColorIdx, tiers, trayW }: {
+  label: string;
+  placements: Array<{ id: string; boatId: string; tier: number; xM: number; slung?: boolean }>;
+  boatById: Record<string, { boatClass: string; widthM: number }>;
+  boatColorIdx: Record<string, number>;
+  tiers: number;
+  trayW: number;
+}) {
+  const svgW = EV_PAD * 2 + trayW;
+  const svgH = EV_HDR + tiers * EV_UNIT + EV_PAD;
+  // y-origin of each tier's top section
+  const topY   = (t: number) => EV_HDR + t * EV_UNIT;
+  // y-origin of each tier's underside (slung) section
+  const underY = (t: number) => topY(t) + EV_TOP_H + EV_RAIL_T;
+  // xM → SVG x (centre of boat); xM=0 = centre, +halfW = left, -halfW = right
+  const bx = (xM: number) => EV_PAD + trayW / 2 - xM;
+
+  const BOAT_H  = EV_TOP_H   * 0.72;
+  const SLUNG_H = EV_UNDER_H * 0.70;
+
+  return (
+    <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ maxWidth: '100%', maxHeight: '100%', width: '100%', height: 'auto', display: 'block' }}>
+      {/* per-tier bands */}
+      {Array.from({ length: tiers }, (_, t) => (
+        <g key={t}>
+          {/* top surface */}
+          <rect x={EV_PAD} y={topY(t)} width={trayW} height={EV_TOP_H}
+            fill={t % 2 === 0 ? '#e8edf3' : '#dde3ea'} />
+          <text x={EV_PAD + 0.05} y={topY(t) + EV_TOP_H / 2}
+            dominantBaseline="middle" fontSize={0.09} fill="#94a3b8">
+            {TIER_NAMES[t] ?? `T${t + 1}`}
+          </text>
+
+          {/* rail bar */}
+          <rect x={EV_PAD} y={topY(t) + EV_TOP_H} width={trayW} height={EV_RAIL_T}
+            fill="#64748b" />
+
+          {/* underside / slung zone */}
+          <rect x={EV_PAD} y={underY(t)} width={trayW} height={EV_UNDER_H}
+            fill={t % 2 === 0 ? '#f1f5f9' : '#e8eef4'}
+            stroke="#cbd5e1" strokeWidth={0.012} strokeDasharray="0.06 0.04" />
+          <text x={EV_PAD + 0.05} y={underY(t) + EV_UNDER_H / 2}
+            dominantBaseline="middle" fontSize={0.08} fill="#b0bec5">↓</text>
+        </g>
+      ))}
+
+      {/* normal boats — end-on hull silhouette sitting upright on the rail */}
+      {placements.filter(p => !p.slung).map(p => {
+        const boat = boatById[p.boatId];
+        if (!boat) return null;
+        const color = BOAT_COLORS[boatColorIdx[p.boatId] % BOAT_COLORS.length];
+        const cx = bx(p.xM);
+        const cy = topY(p.tier) + EV_TOP_H / 2;
+        return (
+          <g key={p.id}>
+            <path d={hullEndPath(boat.widthM, BOAT_H)}
+              transform={`translate(${cx},${cy}) scale(1,-1)`}
+              fill={color} fillOpacity={0.84}
+              stroke="rgba(255,255,255,0.7)" strokeWidth={0.014} />
+            <text x={cx} y={cy + BOAT_H * 0.08}
+              textAnchor="middle" dominantBaseline="middle"
+              fontSize={0.09} fill="white" fontWeight={700}
+              style={{ pointerEvents: 'none', userSelect: 'none' }}>
+              {boat.boatClass}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* slung boats — inverted hull silhouette hanging under the rail */}
+      {placements.filter(p => !!p.slung).map(p => {
+        const boat = boatById[p.boatId];
+        if (!boat) return null;
+        const color = BOAT_COLORS[boatColorIdx[p.boatId] % BOAT_COLORS.length];
+        const cx = bx(p.xM);
+        const cy = underY(p.tier) + EV_UNDER_H / 2;
+        return (
+          <g key={p.id}>
+            <path d={hullEndPath(boat.widthM, SLUNG_H)}
+              transform={`translate(${cx},${cy})`}
+              fill={color} fillOpacity={0.65}
+              stroke="rgba(255,255,255,0.7)" strokeWidth={0.014} />
+            <text x={cx} y={cy - SLUNG_H * 0.08}
+              textAnchor="middle" dominantBaseline="middle"
+              fontSize={0.09} fill="white" fontWeight={700}
+              style={{ pointerEvents: 'none', userSelect: 'none' }}>
+              {boat.boatClass}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* outer frame */}
+      <rect x={EV_PAD} y={topY(0)} width={trayW} height={tiers * EV_UNIT}
+        fill="none" stroke="#475569" strokeWidth={0.025} />
+
+      {/* label */}
+      <text x={svgW / 2} y={EV_HDR / 2}
+        textAnchor="middle" dominantBaseline="middle"
+        fontSize={0.13} fontWeight={700} fill="#334155">
+        {label}
+      </text>
+    </svg>
+  );
+}
+
 const btnPrimary: React.CSSProperties = {
   flex: 1, padding: '8px 12px', background: '#1d4ed8', color: 'white',
   border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer',
@@ -101,6 +229,8 @@ export default function Layout() {
   const halfW   = trailer.trailerWidthM / 2;
   const bedLen  = trailer.bedLengthM;
   const trayW   = trailer.trailerWidthM;
+  // Bow of boats on the lowest 2 tiers cannot extend past half the tongue length
+  const bowFrontLimit = halfLen + trailer.tongueLengthM / 2;
 
   const boatById      = Object.fromEntries(boats.map(b => [b.id, b]));
   const boatColorIdx  = Object.fromEntries(boats.map((b, i) => [b.id, i]));
@@ -159,6 +289,7 @@ export default function Layout() {
     const boat = boatById[boatId];
     if (!boat) return false;
     if (!isValidZ(zM, boat.lengthM, towerZs)) return false;
+    if (tier >= trailer.tiers - 2 && zM + boat.lengthM / 2 > bowFrontLimit) return false;
     if (tier > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) return false;
     return !placements.some(p => {
       if (p.tier !== tier || p.id === excludeId) return false;
@@ -251,7 +382,7 @@ export default function Layout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       {/* Toolbar */}
-      <div style={{ padding: '10px 16px', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 8 }}>
+      <div style={{ padding: '10px 16px', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 8, flexShrink: 0 }}>
         <button onClick={autoLayout} style={btnPrimary}>✨ Auto-Arrange</button>
         <button onClick={addRandom} style={btnSecondary}>+ 10 Random</button>
         <button onClick={clearPlacements} style={{ ...btnSecondary, color: '#64748b', borderColor: '#cbd5e1' }}>Clear Layout</button>
@@ -263,11 +394,42 @@ export default function Layout() {
       </div>
 
       {pendingBoatId && (
-        <div style={{ padding: '6px 16px', background: '#eff6ff', borderBottom: '1px solid #93c5fd', fontSize: 12, color: '#1d4ed8', display: 'flex', alignItems: 'center' }}>
+        <div style={{ padding: '6px 16px', background: '#eff6ff', borderBottom: '1px solid #93c5fd', fontSize: 12, color: '#1d4ed8', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           Click a tier column to place <strong style={{ marginLeft: 4 }}>{boatById[pendingBoatId]?.name}</strong>
           <button onClick={() => setPendingBoatId(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#1d4ed8', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>✕</button>
         </div>
       )}
+
+      {/* Main area: end views + SVG + Boathouse sidebar */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+
+      {/* Left sidebar: front & rear end views */}
+      <div style={{
+        width: 360, flexShrink: 0, borderRight: '1px solid #e2e8f0', background: 'white',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px' }}>
+          <EndView
+            label="Front Half"
+            placements={placements.filter(p => p.zCenterM >= 0)}
+            boatById={boatById}
+            boatColorIdx={boatColorIdx}
+            tiers={trailer.tiers}
+            trayW={trayW}
+          />
+        </div>
+        <div style={{ height: 1, background: '#e2e8f0', flexShrink: 0 }} />
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px' }}>
+          <EndView
+            label="Rear Half"
+            placements={placements.filter(p => p.zCenterM < 0)}
+            boatById={boatById}
+            boatColorIdx={boatColorIdx}
+            tiers={trailer.tiers}
+            trayW={trayW}
+          />
+        </div>
+      </div>
 
       {/* SVG */}
       <div style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
@@ -310,6 +472,18 @@ export default function Layout() {
                     />
                   );
                 })}
+                {/* Bow limit line on the lowest 2 tiers */}
+                {t >= trailer.tiers - 2 && (() => {
+                  const limY = zToSvgY(bowFrontLimit, halfLen, overhang);
+                  return (
+                    <g>
+                      <line x1={cx} y1={limY} x2={cx + trayW} y2={limY}
+                        stroke="#dc2626" strokeWidth={0.04} strokeDasharray="0.10 0.06" />
+                      <text x={cx + trayW / 2} y={limY - 0.10} textAnchor="middle"
+                        fontSize={0.13} fill="#dc2626" fontWeight={600}>bow limit</text>
+                    </g>
+                  );
+                })()}
                 {placements.filter(p => p.tier === t).map(p => {
                   const boat = boatById[p.boatId];
                   if (!boat) return null;
@@ -319,6 +493,7 @@ export default function Layout() {
                   const renderTier = isDragging ? drag!.tier : t;
                   if (renderTier !== t) return null;
                   const isSlung = !!p.slung;
+                  const canSling = ['1x', '2x', '2-'].includes(boat.boatClass) && p.tier < trailer.tiers - 1;
                   const color = BOAT_COLORS[boatColorIdx[p.boatId] % BOAT_COLORS.length];
                   const invalid = isDragging ? !drag!.valid : !isOk(t, p.boatId, dispX, dispZ, isSlung, p.id);
                   const boatCX = cx + (halfW - dispX);
@@ -353,10 +528,10 @@ export default function Layout() {
                       </text>
                       <circle
                         cx={slX} cy={slY} r={0.08}
-                        fill={isSlung ? '#7c3aed' : '#64748b'}
-                        style={{ cursor: 'pointer' }}
+                        fill={isSlung ? '#7c3aed' : canSling ? '#64748b' : '#cbd5e1'}
+                        style={{ cursor: canSling ? 'pointer' : 'not-allowed' }}
                         onPointerDown={e => e.stopPropagation()}
-                        onClick={e => { e.stopPropagation(); setSlung(p.id, !isSlung); }}
+                        onClick={e => { e.stopPropagation(); if (canSling) setSlung(p.id, !isSlung); }}
                       />
                       <text
                         x={slX} y={slY}
@@ -416,62 +591,61 @@ export default function Layout() {
         </svg>
       </div>
 
-      {/* Boathouse — columned by boat class */}
-      <div style={{ borderTop: '1px solid #e2e8f0', background: 'white', flexShrink: 0 }}>
-        <div style={{ padding: '6px 12px 4px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      {/* Boathouse sidebar */}
+      <div style={{
+        width: 180, flexShrink: 0, borderLeft: '1px solid #e2e8f0', background: 'white',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        <div style={{ padding: '6px 10px 4px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Boathouse ({unplacedBoats.length})
           </span>
         </div>
-        {unplacedBoats.length === 0 && boats.length > 0 && (
-          <div style={{ padding: '4px 12px 8px', fontSize: 12, color: '#94a3b8' }}>All boats placed on trailer</div>
-        )}
-        {boats.length === 0 && (
-          <div style={{ padding: '4px 12px 8px', fontSize: 12, color: '#94a3b8' }}>Add boats in the Boats tab first.</div>
-        )}
-        {classKeys.length > 0 && (
-          <div style={{ display: 'flex', overflowX: 'auto', gap: 0, borderTop: '1px solid #f1f5f9' }}>
-            {classKeys.map((cls, ci) => (
-              <div key={cls} style={{
-                minWidth: 110, flexShrink: 0,
-                borderRight: ci < classKeys.length - 1 ? '1px solid #e2e8f0' : undefined,
-                padding: '6px 8px',
+        <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {boats.length === 0 && (
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Add boats in the Boats tab first.</div>
+          )}
+          {unplacedBoats.length === 0 && boats.length > 0 && (
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>All boats placed on trailer.</div>
+          )}
+          {classKeys.map(cls => (
+            <div key={cls}>
+              <div style={{
+                fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase',
+                letterSpacing: '0.4px', marginBottom: 4,
               }}>
-                <div style={{
-                  fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase',
-                  letterSpacing: '0.4px', marginBottom: 4, textAlign: 'center',
-                }}>
-                  {cls}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {classGroups[cls].map(boat => {
-                    const color = BOAT_COLORS[boatColorIdx[boat.id] % BOAT_COLORS.length];
-                    const sel = pendingBoatId === boat.id;
-                    return (
-                      <div
-                        key={boat.id}
-                        onClick={() => setPendingBoatId(sel ? null : boat.id)}
-                        title={`${boat.name} — ${boat.lengthM}m`}
-                        style={{
-                          background: sel ? '#dbeafe' : color,
-                          color: sel ? '#1d4ed8' : 'white',
-                          border: sel ? '2px solid #1d4ed8' : '2px solid transparent',
-                          borderRadius: 5, padding: '3px 6px',
-                          fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        }}
-                      >
-                        <span style={{ opacity: 0.75, fontSize: 9 }}>{boat.lengthM}m · </span>
-                        {boat.name}
-                      </div>
-                    );
-                  })}
-                </div>
+                {cls}
               </div>
-            ))}
-          </div>
-        )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {classGroups[cls].map(boat => {
+                  const color = BOAT_COLORS[boatColorIdx[boat.id] % BOAT_COLORS.length];
+                  const sel = pendingBoatId === boat.id;
+                  return (
+                    <div
+                      key={boat.id}
+                      onClick={() => setPendingBoatId(sel ? null : boat.id)}
+                      title={`${boat.name} — ${boat.lengthM}m`}
+                      style={{
+                        background: sel ? '#dbeafe' : color,
+                        color: sel ? '#1d4ed8' : 'white',
+                        border: sel ? '2px solid #1d4ed8' : '2px solid transparent',
+                        borderRadius: 5, padding: '3px 6px',
+                        fontSize: 10, fontWeight: 600, cursor: 'pointer',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <span style={{ opacity: 0.75, fontSize: 9 }}>{boat.lengthM}m · </span>
+                      {boat.name}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
+
+      </div>{/* end main row */}
     </div>
   );
 }

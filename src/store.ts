@@ -88,9 +88,13 @@ export const useStore = create<State>()(
         })),
 
       setSlung: (id, slung) =>
-        set((s) => ({
-          placements: s.placements.map(p => p.id === id ? { ...p, slung } : p),
-        })),
+        set((s) => {
+          const p = s.placements.find(pl => pl.id === id);
+          const boat = p ? s.boats.find(b => b.id === p.boatId) : null;
+          if (slung && boat && !['1x', '2x', '2-'].includes(boat.boatClass)) return s;
+          if (slung && p && p.tier === s.trailer.tiers - 1) return s;
+          return { placements: s.placements.map(pl => pl.id === id ? { ...pl, slung } : pl) };
+        }),
 
       removePlacement: (id) =>
         set((s) => ({ placements: s.placements.filter(p => p.id !== id) })),
@@ -154,46 +158,82 @@ export const useStore = create<State>()(
         const halfLen = trailer.bedLengthM / 2;
         const halfW = trailer.trailerWidthM / 2;
         const GAP = 0.08;
+        // Bow of boats on the lowest 2 tiers cannot extend past half the tongue length
+        const bowFrontLimit = halfLen + trailer.tongueLengthM / 2;
+        // Tandem-axle midpoint (matches 3D model: 60% back from tray front).
+        // Heavier boats are biased to sit over this Z so the bulk of weight rests on the axles.
+        const axleZ = halfLen - trailer.bedLengthM * 0.60;
 
+        const LARGE_CLASSES = new Set(['8+', '4+', '4-', '4x']);
+        const SLINGABLE     = new Set(['1x', '2x', '2-']);
+
+        // Dense Z candidates: 0.25 m samples across the full bed plus tower-pair midpoints.
+        // snapZ maps each raw value to the nearest valid slot; dedup collapses collisions.
         const candidateZs: number[] = [0];
         for (let i = 0; i < towerZs.length - 1; i++) {
           for (let j = i + 1; j < towerZs.length; j++) {
             candidateZs.push((towerZs[i] + towerZs[j]) / 2);
           }
         }
+        for (let z = -halfLen; z <= halfLen; z += 0.25) candidateZs.push(z);
 
-        const sorted = [...boats].sort((a, b) => b.lengthM - a.lengthM);
+        // 4-person+ classes first (keeps longer boats on the higher tiers, which fill first),
+        // then within each group heaviest first so the heaviest boats claim the axle-zone slots.
+        const sorted = [...boats].sort((a, b) => {
+          const ap = LARGE_CLASSES.has(a.boatClass) ? 0 : 1;
+          const bp = LARGE_CLASSES.has(b.boatClass) ? 0 : 1;
+          if (ap !== bp) return ap - bp;
+          return (b.weightKg - a.weightKg) || (b.lengthM - a.lengthM);
+        });
+
         const newPlacements: BoatPlacement[] = [];
 
-        for (const boat of sorted) {
-          let placed = false;
-          for (let t = 0; t < trailer.tiers && !placed; t++) {
+        function tryPlace(boat: typeof boats[0], slung: boolean): boolean {
+          for (let t = 0; t < trailer.tiers; t++) {
             const xStep = boat.widthM + GAP;
             const xStart = -halfW + boat.widthM / 2;
             const xEnd   =  halfW - boat.widthM / 2;
-
-            for (let xM = xStart; xM <= xEnd + 0.001 && !placed; xM += xStep) {
+            for (let xM = xStart; xM <= xEnd + 0.001; xM += xStep) {
+              // Snap all candidates and deduplicate
+              const seen = new Set<number>();
               const validZs = candidateZs
                 .map(z => snapZ(z, boat.lengthM, towerZs, halfLen))
-                .filter(z => isValidZ(z, boat.lengthM, towerZs))
-                .sort((a, b) => Math.abs(a) - Math.abs(b));
-
+                .filter(z => {
+                  const key = Math.round(z * 1000);
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return isValidZ(z, boat.lengthM, towerZs);
+                })
+                .sort((a, b) => Math.abs(a - axleZ) - Math.abs(b - axleZ));
               for (const zM of validZs) {
-                if (t > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) continue;
+                if (slung && t === trailer.tiers - 1) continue;
+                if (t >= trailer.tiers - 2 && zM + boat.lengthM / 2 > bowFrontLimit) continue;
+                if (!slung && t > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) continue;
                 const collision = newPlacements.some(p => {
-                  if (p.tier !== t) return false;
+                  if (p.tier !== t || !!p.slung !== slung) return false;
                   const pb = boats.find(b => b.id === p.boatId);
                   if (!pb) return false;
                   return footprintsOverlap(xM, zM, boat.widthM, boat.lengthM, p.xM, p.zCenterM, pb.widthM, pb.lengthM);
                 });
                 if (!collision) {
-                  newPlacements.push({ id: makeId(), boatId: boat.id, tier: t, xM, zCenterM: zM });
-                  placed = true;
-                  break;
+                  newPlacements.push({ id: makeId(), boatId: boat.id, tier: t, xM, zCenterM: zM, slung: slung || undefined });
+                  return true;
                 }
               }
             }
           }
+          return false;
+        }
+
+        // Phase 1: normal placement for all boats
+        const unplaced: typeof boats = [];
+        for (const boat of sorted) {
+          if (!tryPlace(boat, false)) unplaced.push(boat);
+        }
+
+        // Phase 2: slung placement only for eligible boats with no normal slot available
+        for (const boat of unplaced) {
+          if (SLINGABLE.has(boat.boatClass)) tryPlace(boat, true);
         }
 
         set({ placements: newPlacements });

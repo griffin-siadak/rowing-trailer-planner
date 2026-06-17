@@ -6,6 +6,7 @@ export interface Boat {
   lengthM: number;
   widthM: number;
   weightKg: number;
+  guest?: boolean;   // true = visiting/guest boat, undefined/false = home boat
 }
 
 export interface BoatPlacement {

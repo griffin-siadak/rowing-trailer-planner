@@ -832,8 +832,8 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
 // wheels, axles, tray, tongue, or landing leg. Ground legs replace the chassis.
 // Fixed 2-group, 4-tier staging rack — same visual language as the trailer rack.
 // armHW: half-width of the horizontal arms (sized to the widest boat configuration).
-function StagingRack({ tiers, rackLength, armHW, offsetX }: {
-  tiers: number; rackLength: number; armHW: number; offsetX: number;
+function StagingRack({ tiers, rackLength, armHW, offsetX, label }: {
+  tiers: number; rackLength: number; armHW: number; offsetX: number; label?: string;
 }) {
   const halfLen = rackLength / 2;
   const groundY = -0.05;
@@ -923,7 +923,24 @@ function StagingRack({ tiers, rackLength, armHW, offsetX }: {
     />
   );
 
-  return <group position={[offsetX, 0, 0]}>{els}</group>;
+  return (
+    <group position={[offsetX, 0, 0]}>
+      {els}
+      {label && (
+        <Text
+          position={[0, tierY(0, tiers) + 0.45, 0]}
+          fontSize={0.34}
+          color="#334155"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.012}
+          outlineColor="#ffffff"
+        >
+          {label}
+        </Text>
+      )}
+    </group>
+  );
 }
 
 // â”€â”€ Controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1053,10 +1070,12 @@ function Scene() {
   const STAGING_CAPACITY  = STAGING_PER_TIER * STAGING_TIERS; // 16 per rack
   const placedIds = new Set(placements.map(p => p.boatId));
   const unplaced  = boats.filter(b => !placedIds.has(b.id));
+  const homeUnplaced  = unplaced.filter(b => !b.guest);
+  const guestUnplaced = unplaced.filter(b => b.guest);
 
-  const stagingGrid = useMemo(() => {
+  function buildGrid(list: Boat[]) {
     const halfW = ((STAGING_PER_TIER * STAGING_SLOT_W) + (STAGING_PER_TIER - 1) * BOAT_GAP_X) / 2;
-    return unplaced.map((boat, i) => {
+    return list.map((boat, i) => {
       const rackIdx   = Math.floor(i / STAGING_CAPACITY);
       const posInRack = i % STAGING_CAPACITY;
       const tier = Math.floor(posInRack / STAGING_PER_TIER);
@@ -1064,15 +1083,21 @@ function Scene() {
       const x    = -halfW + pos * (STAGING_SLOT_W + BOAT_GAP_X) + STAGING_SLOT_W / 2;
       return { boat, tier, x, rackIdx };
     });
-  }, [unplaced]);
+  }
+  const homeGrid  = useMemo(() => buildGrid(homeUnplaced),  [homeUnplaced]);
+  const guestGrid = useMemo(() => buildGrid(guestUnplaced), [guestUnplaced]);
 
-  const nRacks = Math.max(1, Math.ceil(unplaced.length / STAGING_CAPACITY));
+  const homeRackCount  = Math.max(1, Math.ceil(homeUnplaced.length / STAGING_CAPACITY));
+  const guestRackCount = Math.ceil(guestUnplaced.length / STAGING_CAPACITY); // 0 when no guests
 
   // Fixed arm half-width: span all 4 slots plus clearance
   const stagingArmHW  = ((STAGING_PER_TIER * STAGING_SLOT_W) + (STAGING_PER_TIER - 1) * BOAT_GAP_X) / 2 + 0.20;
   const rackSpacing   = stagingArmHW * 2 + 1.0;
   const trailerFrameHW = (trailer.trailerWidthM ?? 2.44) / 2;
   const firstRackX    = trailerFrameHW + stagingArmHW + 3.5;
+  // Home racks extend on the +X side, guest racks mirror onto the −X side
+  const homeRackX  = (ri: number) =>  (firstRackX + ri * rackSpacing);
+  const guestRackX = (ri: number) => -(firstRackX + ri * rackSpacing);
 
   const totalLen = trailerLength + (trailer.tongueLengthM ?? 2.0);
   const camD     = Math.max(totalLen * 0.65, 14);
@@ -1152,21 +1177,52 @@ function Scene() {
           </mesh>
         )}
 
-        {/* Staging rack */}
-        {/* One staging rack per 16-boat chunk */}
-        {Array.from({ length: nRacks }, (_, ri) => (
+        {/* Home staging racks on the +X side */}
+        {Array.from({ length: homeRackCount }, (_, ri) => (
           <StagingRack
-            key={ri}
+            key={`home-${ri}`}
             tiers={STAGING_TIERS}
             rackLength={6.0}
             armHW={stagingArmHW}
-            offsetX={firstRackX + ri * rackSpacing}
+            offsetX={homeRackX(ri)}
+            label={ri === 0 ? 'HOME' : undefined}
           />
         ))}
 
-        {/* Unplaced boats distributed across staging racks */}
-        {stagingGrid.map(({ boat, tier, x, rackIdx }) => {
-          const stagingX = firstRackX + rackIdx * rackSpacing + x;
+        {/* Guest staging racks on the −X side (only when there are guest boats) */}
+        {Array.from({ length: guestRackCount }, (_, ri) => (
+          <StagingRack
+            key={`guest-${ri}`}
+            tiers={STAGING_TIERS}
+            rackLength={6.0}
+            armHW={stagingArmHW}
+            offsetX={guestRackX(ri)}
+            label={ri === 0 ? 'GUEST' : undefined}
+          />
+        ))}
+
+        {/* Home unplaced boats */}
+        {homeGrid.map(({ boat, tier, x, rackIdx }) => {
+          const stagingX = homeRackX(rackIdx) + x;
+          const isDragging = drag?.source === 'staging' && drag.id === boat.id;
+          if (isDragging) return null; // ghost shown on trailer instead
+          return (
+            <ShellMesh
+              key={boat.id}
+              boat={boat}
+              posX={stagingX}
+              posY={tierY(tier, STAGING_TIERS) + 0.03}
+              posZ={0}
+              colorIndex={boatColorIdx[boat.id]}
+              isSelected={false}
+              onPointerDown={(e) => { if (!drag) startStagingDrag(e, boat, stagingX); }}
+            />
+          );
+        })}
+
+        {/* Guest unplaced boats */}
+        {guestGrid.map(({ boat, tier, x, rackIdx }) => {
+          const stagingX = guestRackX(rackIdx) + x;
           const isDragging = drag?.source === 'staging' && drag.id === boat.id;
           if (isDragging) return null; // ghost shown on trailer instead
           return (
