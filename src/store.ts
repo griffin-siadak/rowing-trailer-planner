@@ -190,7 +190,11 @@ export const useStore = create<State>()(
         const newPlacements: BoatPlacement[] = [];
 
         function tryPlace(boat: typeof boats[0], slung: boolean): boolean {
-          for (let t = 0; t < trailer.tiers; t++) {
+          // Normal boats fill from the top tier down; slung boats prioritise the
+          // lower tiers first (bottom tier itself is excluded from slinging below).
+          const tierOrder = Array.from({ length: trailer.tiers }, (_, i) => i);
+          if (slung) tierOrder.reverse();
+          for (const t of tierOrder) {
             const xStep = boat.widthM + GAP;
             const xStart = -halfW + boat.widthM / 2;
             const xEnd   =  halfW - boat.widthM / 2;
