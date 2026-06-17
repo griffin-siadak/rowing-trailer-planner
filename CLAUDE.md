@@ -11,6 +11,8 @@ These rules travel with the repo so they apply on any computer.
   individual file edit within it. Keep history readable.
 - **Blanket permission to commit** — no need to ask before committing. (Pushing to
   remote and deploying to Pages still wait for an explicit ask.)
+- **Push reminders** — commit locally for every change; remind the user to push to
+  GitHub roughly every 30 minutes rather than pushing automatically.
 - Stage only the relevant source files under `src/`. Leave platform/build scaffolding
   untracked unless explicitly asked: `.claude/`, `android/`, `ios/`, `capacitor.config.ts`.
 - End commit messages with the `Co-Authored-By` trailer.
