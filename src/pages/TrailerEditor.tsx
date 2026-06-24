@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { useStore } from '../store';
 import { tierYs } from '../utils';
 import type { Trailer } from '../types';
@@ -116,12 +117,22 @@ function SideView({ trailer }: { trailer: Trailer }) {
 }
 
 // ─── End cross-section: looking down the length (X = lateral, Y = height) ─────
+type EndDrag =
+  | { kind: 'width' }
+  | { kind: 'tierH'; i: number }
+  | { kind: 'tierW'; i: number }
+  | { kind: 'track' };
+
 function EndView({ trailer }: { trailer: Trailer }) {
+  const { updateTrailer, updateTier, updateAxle } = useStore();
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [drag, setDrag] = useState<EndDrag | null>(null);
+
   const g = trailerGeom(trailer);
   const maxRail  = Math.max(trailer.trailerWidthM, ...trailer.tiers.map(t => t.railWidthM));
   const maxTrack = Math.max(...trailer.axles.map(a => a.trackWidthM));
   const halfSpan = Math.max(maxRail, maxTrack) / 2;
-  const pad = 0.4;
+  const pad = 0.55;
 
   const ex = (x: number) => (halfSpan + pad) + x;       // x=0 at centre
   const yTop = g.topY + pad;
@@ -131,13 +142,55 @@ function EndView({ trailer }: { trailer: Trailer }) {
   const vbH = yTop - (g.realFloor - pad * 0.6);
   const stroke = 0.03;
   const fs = 0.20;
+  const HANDLE = 0.13;
 
   // Unique post X positions across all groups (they overlap in an end view).
   const postXs = Array.from(new Set(trailer.towerGroups.flatMap(grp => grp.postXs))).sort((a, b) => a - b);
   const postW  = Math.max(0.03, trailer.towerGroups[0]?.postWidthM ?? 0.08);
 
+  // Convert a client point into model metres (centre origin, Y up).
+  function toMeters(clientX: number, clientY: number) {
+    const svg = svgRef.current!;
+    const pt = svg.createSVGPoint();
+    pt.x = clientX; pt.y = clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM()!.inverse());
+    return { mx: p.x - (halfSpan + pad), my: yTop - p.y };
+  }
+
+  function onMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (!drag) return;
+    const { mx, my } = toMeters(e.clientX, e.clientY);
+    if (drag.kind === 'width') {
+      updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, Math.abs(mx) * 2)) });
+    } else if (drag.kind === 'track') {
+      const tw = Math.max(0.6, Math.min(4, Math.abs(mx) * 2));
+      trailer.axles.forEach(a => updateAxle(a.id, { trackWidthM: tw }));
+    } else if (drag.kind === 'tierW') {
+      updateTier(trailer.tiers[drag.i].id, { railWidthM: Math.max(0.3, Math.min(4, Math.abs(mx) * 2)) });
+    } else if (drag.kind === 'tierH') {
+      // Drag tier i vertically → adjust its band height (distance to the tier below).
+      const belowY = g.tYs[drag.i + 1] ?? 0;   // bottom tier measures from the deck datum (0)
+      updateTier(trailer.tiers[drag.i].id, { heightM: Math.max(0.15, Math.min(1.5, my - belowY)) });
+    }
+  }
+
+  function startDrag(e: React.PointerEvent, d: EndDrag) {
+    e.stopPropagation();
+    try { svgRef.current?.setPointerCapture(e.pointerId); } catch { /* non-active pointer */ }
+    setDrag(d);
+  }
+  function endDrag(e: React.PointerEvent<SVGSVGElement>) {
+    if (drag) {
+      try { svgRef.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      setDrag(null);
+    }
+  }
+
   return (
-    <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width: '100%', maxHeight: 340, display: 'block', margin: '0 auto' }}>
+    <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
+      style={{ width: '100%', maxHeight: 360, display: 'block', margin: '0 auto', touchAction: 'none' }}
+      onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
+    >
       {/* ground */}
       <line x1={0} y1={ey(g.realFloor)} x2={vbW} y2={ey(g.realFloor)} stroke={COL.ground} strokeWidth={0.04} />
 
@@ -149,19 +202,43 @@ function EndView({ trailer }: { trailer: Trailer }) {
         <rect key={i} x={ex(bx) - trailer.beamWidthM / 2} y={ey(DECK_Y)} width={trailer.beamWidthM} height={0.14} fill={COL.beam} />
       ))}
 
-      {/* wheels (front axle's track) */}
+      {/* trailer width handles (at deck level, ± width/2) */}
+      {[-1, 1].map(s => (
+        <rect key={s} x={ex(s * trailer.trailerWidthM / 2) - HANDLE / 2} y={ey(DECK_Y) - HANDLE / 2}
+          width={HANDLE} height={HANDLE} rx={0.03} fill={COL.frame}
+          style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'width' })} />
+      ))}
+      <text x={ex(0)} y={ey(DECK_Y) - 0.16} textAnchor="middle" fontSize={fs * 0.8} fill={COL.frame}>
+        width {trailer.trailerWidthM.toFixed(2)} m
+      </text>
+
+      {/* wheels + track handle */}
       {[-maxTrack / 2, maxTrack / 2].map((wx, i) => (
         <circle key={i} cx={ex(wx)} cy={ey(g.axleCentY)} r={g.maxWheelR} fill={COL.wheel} />
       ))}
+      {[-1, 1].map(s => (
+        <rect key={s} x={ex(s * maxTrack / 2) - HANDLE / 2} y={ey(g.axleCentY) - HANDLE / 2}
+          width={HANDLE} height={HANDLE} rx={0.03} fill="#3b82f6"
+          style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'track' })} />
+      ))}
+      <text x={ex(0)} y={ey(g.axleCentY) + 0.04} textAnchor="middle" fontSize={fs * 0.7} fill="white">
+        track {maxTrack.toFixed(2)} m
+      </text>
 
-      {/* tier rails (horizontal, spanning railWidthM) */}
+      {/* tier rails — draggable vertically (height) with end handle (width) */}
       {g.tYs.map((y, t) => {
         const hw = trailer.tiers[t].railWidthM / 2;
         return (
           <g key={t}>
+            {/* fat invisible hit-line for vertical drag */}
+            <line x1={ex(-hw)} y1={ey(y)} x2={ex(hw)} y2={ey(y)} stroke="transparent" strokeWidth={0.16}
+              style={{ cursor: 'ns-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tierH', i: t })} />
             <line x1={ex(-hw)} y1={ey(y)} x2={ex(hw)} y2={ey(y)} stroke={COL.tier} strokeWidth={stroke} />
-            <text x={ex(hw) + 0.10} y={ey(y) + 0.05} fontSize={fs * 0.72} fill={COL.label}>
-              {(trailer.tiers[t].railWidthM).toFixed(2)} m
+            {/* width handle at right end */}
+            <rect x={ex(hw) - HANDLE / 2} y={ey(y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
+              fill={COL.tier} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tierW', i: t })} />
+            <text x={ex(-hw) - 0.12} y={ey(y) + 0.05} textAnchor="end" fontSize={fs * 0.7} fill={COL.label}>
+              {(TIER_NAMES[t] ?? `T${t + 1}`)}: h{trailer.tiers[t].heightM.toFixed(2)} · w{trailer.tiers[t].railWidthM.toFixed(2)}
             </text>
           </g>
         );
@@ -171,11 +248,6 @@ function EndView({ trailer }: { trailer: Trailer }) {
       {postXs.map((px, i) => (
         <line key={i} x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke={COL.post} strokeWidth={postW} />
       ))}
-
-      {/* width dimension */}
-      <text x={ex(0)} y={ey(g.realFloor) + 0.30} textAnchor="middle" fontSize={fs} fill={COL.dim}>
-        width {trailer.trailerWidthM.toFixed(2)} m · track {maxTrack.toFixed(2)} m
-      </text>
     </svg>
   );
 }
@@ -186,8 +258,10 @@ export default function TrailerEditor() {
   return (
     <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
       <div style={{ ...card, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: 13, color: '#1d4ed8' }}>
-        Visual trailer editor (Phase 1: live preview). Drag-to-adjust handles and per-part
-        controls are being added next — for now the views below reflect the current model.
+        Visual trailer editor. <strong>End cross-section:</strong> drag the square handles to
+        adjust trailer width, each tier's height (drag the rail up/down) and rail width (drag the
+        end handle), and the wheel track. Changes show live here and in the 3D view. Side-profile
+        dragging and click-to-type fields are coming next.
       </div>
 
       <div style={card}>
