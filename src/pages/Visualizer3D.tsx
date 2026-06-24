@@ -4,8 +4,8 @@ import type { ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
-import type { Boat, BoatPlacement, TowerGroup } from '../types';
-import { computeTowerZs, computeTowerXZs, getTowerXsForGroup, snapZ, boatClearsTowers } from '../utils';
+import type { Boat, BoatPlacement, Trailer } from '../types';
+import { computeTowerZs, computeTowerXZs, tierYs, snapZ, boatClearsTowers } from '../utils';
 import { SHELL_DB } from '../shellDatabase';
 
 // â”€â”€ Fallback palette (used when manufacturer is unknown) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -195,13 +195,9 @@ const BOW_BALL_R    = 0.025;  // FISA bow-ball radius â‰ˆ 4 cm diameter
 // At the tip, hull width = widthM Ã— HULL_MIN_TIP and keel height = depth Ã— HULL_MIN_TIP.
 const HULL_MIN_TIP  = 0.030;
 
+// Uniform tier-Y for the staging racks (the trailer uses tierYs() from the model).
 function tierY(tier: number, totalTiers: number) {
   return (totalTiers - 1 - tier) * TIER_HEIGHT + TIER_BASE_Y;
-}
-
-function slingY(upperTier: number, totalTiers: number) {
-  // Gunwale (y=0 in local space) flush against the pad bottom face of the upper rail
-  return tierY(upperTier, totalTiers);
 }
 
 // â”€â”€ Hull geometry factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -490,40 +486,32 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
 //   â€¢ Spare tyre flat-mounted between rack and axle
 //   â€¢ Screw-down landing leg at tongue
 
-function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towerGroups }: {
-  tiers: number;
-  trailerLength: number;
-  trailerWidthM: number;
-  tongueLengthM: number;
-  towerGroups: TowerGroup[];
-}) {
+function TrailerFrame({ trailer }: { trailer: Trailer }) {
+  const trailerLength = trailer.bedLengthM;
+  const tongueLengthM = trailer.tongueLengthM;
+  const towerGroups   = trailer.towerGroups;
+
+  const tYs       = tierYs(trailer);
+  const nTiers    = trailer.tiers.length;
   const halfLen   = trailerLength / 2;
   const groundY   = -0.05;
   const beamDepth = 0.22;
-  const beamW     = 0.10;
+  const beamW     = trailer.beamWidthM;
   const deckY     = groundY + beamDepth;
-  const topY      = tierY(0, tiers);
+  const topY      = tYs[0];
 
-  // chHW: half-width of the chassis beams â€” derived from fixed trailer width, not boat beams.
-  const chHW = trailerWidthM / 2 - 0.025 - beamW / 2;
+  // chHW: half-width between the two chassis beams (centre-to-centre / 2).
+  const chHW = trailer.beamSpacingM / 2;
 
-  const wheelR    = 0.27;
-  const axleCentY = groundY - wheelR + 0.04;
-  const realFloor = axleCentY - wheelR;
-
-  // Towers are vertical â€” no rake
-  const rakeH = 0;
-  const rake  = 0;
+  // Ground/jack reference taken from the largest wheel.
+  const maxWheelR = Math.max(0.2, ...trailer.axles.map(a => a.wheelDiaM / 2));
+  const axleCentY = groundY - maxWheelR + 0.04;
+  const realFloor = axleCentY - maxWheelR;
 
   // Tray spans the full bed length, centered at origin
   const trayFront =  halfLen;
   const trayLen   = trailerLength;
-  const nTowers   = Math.max(2, towerGroups.length);
-  const towerInset = 0.20;
-  const towerSpan  = trayLen - 2 * towerInset;
-  const towerZs    = Array.from({ length: nTowers }, (_, i) =>
-    trayFront - towerInset - (i / (nTowers - 1)) * towerSpan
-  );
+  const towerZs   = towerGroups.map(g => g.zPosM);
 
   const alum   = '#c4cdd6';
   const dark   = '#2a3540';
@@ -531,11 +519,6 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
   const els: React.ReactElement[] = [];
 
   const trayCentZ = 0;
-
-  // Tandem axle midpoint at ~60% back from tongue end of tray â€” gives positive tongue weight
-  const axleMidZ = trayFront - trayLen * 0.60;
-  const axle1Z   = axleMidZ - 0.46;
-  const axle2Z   = axleMidZ + 0.46;
 
   // â”€â”€ 1. Box-section chassis beams (tray length only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   for (const xs of [-chHW, chHW]) {
@@ -558,7 +541,7 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
 
   // Tray: floor + four raised walls, open top.
   // Top edge sits just under the bottom rack tier.
-  const trayWallTop  = TIER_BASE_Y - 0.04;          // just under bottom tier
+  const trayWallTop  = tYs[nTiers - 1] - 0.04;      // just under bottom tier
   const trayWallH    = trayWallTop - deckY;          // wall height
   const trayWallCY   = deckY + trayWallH / 2;        // wall centre Y
   const trayInnerHW  = chHW + beamW / 2;             // inner half-width of tray
@@ -599,23 +582,21 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
   // Each tower is two posts (at Â±postHW, i.e. front-back in Z) with a cross-member
   // at the top and horizontal arms extending outward at each tier height.
   // Sides are fully open â€” posts are central, arms reach out to gunwale positions.
-  const armHW = trailerWidthM / 2 - 0.05;
+  for (let ti = 0; ti < towerGroups.length; ti++) {
+    const group = towerGroups[ti];
+    const tz    = group.zPosM;
+    const txs   = group.postXs;
+    const postR = group.postWidthM / 2;
+    const leftX  = Math.min(...txs);
+    const rightX = Math.max(...txs);
 
-  for (let ti = 0; ti < towerZs.length; ti++) {
-    const tz    = towerZs[ti];
-    const tzTop = tz + rakeH * rake;
-    const group = towerGroups[ti] ?? { count: 1, xCenter: 0 };
-    const txs   = getTowerXsForGroup(group.count, group.xCenter, trailerWidthM);
-    const leftX  = txs[0];
-    const rightX = txs[txs.length - 1];
-
-    // Single post per tower in the group — runs from tray deck up through all tier rails
+    // One post per tower in the group — runs from tray deck up through all tier rails
     for (const tx of txs) {
       els.push(
         <Rail key={`post-${ti}-${tx}`}
           from={[tx, deckY, tz]}
-          to={[tx,   topY, tzTop]}
-          color={alum} r={0.034}
+          to={[tx,   topY, tz]}
+          color={alum} r={postR}
         />
       );
     }
@@ -636,9 +617,10 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
       );
     }
 
-    // Arms extend from outermost towers to trailer edge
-    for (let t = 0; t < tiers; t++) {
-      const y = tierY(t, tiers);
+    // Arms extend from outermost towers to each tier's rail edge
+    for (let t = 0; t < nTiers; t++) {
+      const y     = tYs[t];
+      const armHW = trailer.tiers[t].railWidthM / 2;
       els.push(
         <Rail key={`armL-${ti}-${t}`}
           from={[leftX, y, tz]} to={[-armHW, y, tz]}
@@ -664,13 +646,15 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
 
   // â”€â”€ 3. Two longitudinal runner beams linking all towers along the length â”€â”€â”€â”€â”€â”€
   // One level below the top â€” at the second-from-top tier height.
-  const runnerY = tierY(1, tiers);
-  const runnerXs = getTowerXsForGroup(towerGroups[0]?.count ?? 1, towerGroups[0]?.xCenter ?? 0, trailerWidthM);
+  const runnerY = tYs[1] ?? tYs[0];
+  const runnerXs = towerGroups[0]?.postXs ?? [0];
+  const runnerZFront = Math.max(...towerZs);
+  const runnerZRear  = Math.min(...towerZs);
   for (const rx of runnerXs) {
     els.push(
       <Rail key={`runner-${rx}`}
-        from={[rx, runnerY, towerZs[0]]}
-        to={[rx, runnerY, towerZs[nTowers - 1]]}
+        from={[rx, runnerY, runnerZFront]}
+        to={[rx, runnerY, runnerZRear]}
         color={alum} r={0.026}
       />
     );
@@ -680,11 +664,11 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
 
   // â”€â”€ 5. Foam pad strips on each arm â€” run across the trailer (X direction) â”€â”€â”€
   // One pad per tower Ã— per tier, spanning the full arm width port-to-starboard.
-  const padHW = trailerWidthM / 2 - 0.05;
-  for (let ti = 0; ti < towerZs.length; ti++) {
-    const tz = towerZs[ti];
-    for (let t = 0; t < tiers; t++) {
-      const y = tierY(t, tiers);
+  for (let ti = 0; ti < towerGroups.length; ti++) {
+    const tz = towerGroups[ti].zPosM;
+    for (let t = 0; t < nTiers; t++) {
+      const y     = tYs[t];
+      const padHW = trailer.tiers[t].railWidthM / 2;
       els.push(
         <mesh key={`pad-${ti}-${t}`} position={[0, y + 0.026, tz]}>
           <boxGeometry args={[padHW * 2, 0.040, 0.055]} />
@@ -694,23 +678,27 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
     }
   }
 
-  // â”€â”€ 7. Tandem axle: two close axles, shared fender, diamond-plate toolboxes â”€â”€
-  const fenderMidZ   = (axle1Z + axle2Z) / 2;
-  const fenderLenZ   = Math.abs(axle2Z - axle1Z) + 0.88;
-  const axleOutboard = chHW + 0.30;
+  // â”€â”€ 7. Axles (one or more), shared fender, diamond-plate toolboxes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const axleZs       = trailer.axles.map(a => a.zPosM);
+  const fenderMidZ   = axleZs.reduce((s, z) => s + z, 0) / axleZs.length;
+  const fenderLenZ   = (Math.max(...axleZs) - Math.min(...axleZs)) + 0.88;
+  const maxOutboard  = Math.max(...trailer.axles.map(a => a.trackWidthM / 2));
 
-  for (const az of [axle1Z, axle2Z]) {
+  for (const axle of trailer.axles) {
+    const az       = axle.zPosM;
+    const outboard = axle.trackWidthM / 2;
+    const wheelR   = axle.wheelDiaM / 2;
     els.push(
-      <Rail key={`axl-${az}`}
-        from={[-axleOutboard, axleCentY, az]}
-        to={[ axleOutboard, axleCentY, az]}
+      <Rail key={`axl-${axle.id}`}
+        from={[-outboard, axleCentY, az]}
+        to={[ outboard, axleCentY, az]}
         color={dark} r={0.026}
       />
     );
     for (const xs of [-1, 1]) {
-      const wx = xs * axleOutboard;
+      const wx = xs * outboard;
       els.push(
-        <mesh key={`tyre-${az}-${xs}`}
+        <mesh key={`tyre-${axle.id}-${xs}`}
           position={[wx, axleCentY, az]}
           rotation={[0, 0, Math.PI / 2]}
         >
@@ -719,7 +707,7 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
         </mesh>
       );
       els.push(
-        <mesh key={`rim-${az}-${xs}`}
+        <mesh key={`rim-${axle.id}-${xs}`}
           position={[wx, axleCentY, az]}
           rotation={[0, 0, Math.PI / 2]}
         >
@@ -729,11 +717,11 @@ function TrailerFrame({ tiers, trailerLength, trailerWidthM, tongueLengthM, towe
       );
     }
   }
-  // Shared fender spanning both axles
+  // Shared fender spanning the axle group
   for (const xs of [-1, 1]) {
     els.push(
       <mesh key={`fender-${xs}`}
-        position={[xs * axleOutboard, axleCentY + wheelR * 1.60, fenderMidZ]}
+        position={[xs * maxOutboard, axleCentY + maxWheelR * 1.60, fenderMidZ]}
       >
         <boxGeometry args={[0.22, 0.13, fenderLenZ]} />
         <meshStandardMaterial color={alum} metalness={0.4} roughness={0.5} />
@@ -988,7 +976,7 @@ function Scene() {
     // Only register tier change when moving more vertically than horizontally
     if (Math.abs(dy) < TIER_THRESHOLD_PX || Math.abs(dy) < dx * 1.2) return drag.previewTier;
     const delta = Math.round(dy / TIER_THRESHOLD_PX);
-    return Math.max(0, Math.min(trailer.tiers - 1, drag.origTier + delta));
+    return Math.max(0, Math.min(trailer.tiers.length - 1, drag.origTier + delta));
   }
 
   function startDrag(e: ThreeEvent<PointerEvent>, placement: BoatPlacement) {
@@ -1101,6 +1089,7 @@ function Scene() {
 
   const totalLen = trailerLength + (trailer.tongueLengthM ?? 2.0);
   const camD     = Math.max(totalLen * 0.65, 14);
+  const tYs      = tierYs(trailer);
 
   return (
     <>
@@ -1112,13 +1101,7 @@ function Scene() {
       <hemisphereLight args={['#bfdbfe', '#94a3b8', 0.4]} />
 
       <group>
-        <TrailerFrame
-          tiers={trailer.tiers}
-          trailerLength={trailerLength}
-          trailerWidthM={trailer.trailerWidthM ?? 2.44}
-          tongueLengthM={trailer.tongueLengthM ?? 2.0}
-          towerGroups={trailer.towerGroups}
-        />
+        <TrailerFrame trailer={trailer} />
 
         {/* Placed boats on trailer */}
         {placements.map(p => {
@@ -1129,7 +1112,7 @@ function Scene() {
           const dispX = isDragging ? Math.max(-halfW - 1, Math.min(halfW + 1, rawDispX)) : rawDispX;
           const dispZ = isDragging ? drag!.previewZ : p.zCenterM;
           const dispTier = isDragging ? drag!.previewTier : p.tier;
-          const posY  = p.slung ? slingY(p.tier, trailer.tiers) : tierY(dispTier, trailer.tiers) + 0.03;
+          const posY  = p.slung ? tYs[p.tier] : tYs[dispTier] + 0.03;
           return (
             <ShellMesh
               key={p.id}
@@ -1155,7 +1138,7 @@ function Scene() {
             <ShellMesh
               boat={boat}
               posX={drag.previewX}
-              posY={tierY(drag.previewTier, trailer.tiers) + 0.03}
+              posY={tYs[drag.previewTier] + 0.03}
               posZ={drag.previewZ}
               colorIndex={boatColorIdx[boat.id]}
               isSelected={true}

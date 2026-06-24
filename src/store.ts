@@ -1,26 +1,97 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Boat, Trailer, BoatPlacement, TowerGroup } from './types';
+import type { Boat, Trailer, TierDef, TowerGroup, AxleDef, BoatPlacement } from './types';
 import { computeTowerZs, computeTowerXZs, isValidZ, snapZ, footprintsOverlap, boatClearsTowers } from './utils';
 
 function makeId() {
   return Math.random().toString(36).slice(2, 9);
 }
 
-const DEFAULT_TRAILER: Trailer = {
-  id: 'default',
-  name: 'My Trailer',
-  bedLengthM: 10.97,
-  tiers: 4,
-  trailerWidthM: 2.44,
-  tongueLengthM: 2.0,
-  towerGroups: [
-    { id: 'tg1', count: 2, xCenter: 0 },
-    { id: 'tg2', count: 2, xCenter: 0 },
-    { id: 'tg3', count: 2, xCenter: 0 },
-    { id: 'tg4', count: 2, xCenter: 0 },
-  ],
-};
+// ── Geometry defaults (kept in sync with the 3D renderer constants) ──────────
+const DEFAULT_TIER_HEIGHT = 0.55;
+const DEFAULT_POST_WIDTH  = 0.08;
+const DEFAULT_BEAM_WIDTH   = 0.10;
+
+// Chassis half-width derived the same way the renderer does.
+function chassisHalfWidth(trailerWidthM: number, beamWidthM = DEFAULT_BEAM_WIDTH) {
+  return trailerWidthM / 2 - 0.025 - beamWidthM / 2;
+}
+
+// Legacy lateral post positions for a group: 1 post = centred; 2 posts = trailer thirds.
+function legacyPostXs(count: number, xCenter: number, trailerWidthM: number): number[] {
+  if (count <= 1) return [xCenter];
+  const off = trailerWidthM / 6;
+  return [-off, off];
+}
+
+// Build a complete trailer from basic dimensions + per-group/tier counts.
+function buildTrailer(opts: {
+  id?: string; name?: string;
+  bedLengthM: number; trailerWidthM: number; tongueLengthM: number;
+  tierCount: number;
+  groups: { id?: string; postXs: number[]; postWidthM?: number }[];
+}): Trailer {
+  const { bedLengthM, trailerWidthM, tongueLengthM, tierCount, groups } = opts;
+  const halfLen = bedLengthM / 2;
+  const beamWidthM = DEFAULT_BEAM_WIDTH;
+  const chHW = chassisHalfWidth(trailerWidthM, beamWidthM);
+
+  const inset = 0.20;
+  const span  = bedLengthM - 2 * inset;
+  const n     = Math.max(2, groups.length);
+  const towerGroups: TowerGroup[] = groups.map((g, i) => ({
+    id: g.id ?? makeId(),
+    zPosM: halfLen - inset - (i / (n - 1)) * span,
+    postXs: g.postXs,
+    postWidthM: g.postWidthM ?? DEFAULT_POST_WIDTH,
+  }));
+
+  const tiers: TierDef[] = Array.from({ length: tierCount }, () => ({
+    id: makeId(), heightM: DEFAULT_TIER_HEIGHT, railWidthM: trailerWidthM,
+  }));
+
+  const axleMidZ = halfLen - bedLengthM * 0.60;
+  const trackWidthM = 2 * (chHW + 0.30);
+  const axles: AxleDef[] = [
+    { id: makeId(), zPosM: axleMidZ - 0.46, trackWidthM, wheelDiaM: 0.54 },
+    { id: makeId(), zPosM: axleMidZ + 0.46, trackWidthM, wheelDiaM: 0.54 },
+  ];
+
+  return {
+    id: opts.id ?? 'default',
+    name: opts.name ?? 'My Trailer',
+    bedLengthM, trailerWidthM, tongueLengthM,
+    beamWidthM, beamSpacingM: 2 * chHW,
+    tiers, towerGroups, axles,
+  };
+}
+
+const DEFAULT_TRAILER: Trailer = buildTrailer({
+  bedLengthM: 10.97, trailerWidthM: 2.44, tongueLengthM: 2.0,
+  tierCount: 4,
+  groups: Array.from({ length: 4 }, () => ({ postXs: legacyPostXs(2, 0, 2.44) })),
+});
+
+// Convert a legacy (v≤3) uniform trailer into the explicit v4 model.
+function legacyToTrailer(old: {
+  id?: string; name?: string; bedLengthM?: number; trailerWidthM?: number;
+  tongueLengthM?: number; tiers?: number;
+  towerGroups?: { id?: string; count?: number; xCenter?: number }[];
+}): Trailer {
+  const trailerWidthM = old.trailerWidthM ?? 2.44;
+  const groups = (old.towerGroups ?? []).map(g => ({
+    id: g.id,
+    postXs: legacyPostXs(g.count ?? 1, g.xCenter ?? 0, trailerWidthM),
+  }));
+  return buildTrailer({
+    id: old.id, name: old.name,
+    bedLengthM: old.bedLengthM ?? 10.97,
+    trailerWidthM,
+    tongueLengthM: old.tongueLengthM ?? 2.0,
+    tierCount: typeof old.tiers === 'number' ? old.tiers : 4,
+    groups: groups.length >= 2 ? groups : DEFAULT_TRAILER.towerGroups.map(g => ({ postXs: g.postXs })),
+  });
+}
 
 export const BOAT_CLASSES: Record<string, { lengthM: number; widthM: number; weightKg: number }> = {
   '1x':  { lengthM: 8.2,  widthM: 0.29, weightKg: 14  },
@@ -51,9 +122,15 @@ interface State {
 
   addTowerGroup: () => void;
   removeTowerGroup: (id: string) => void;
-  updateTowerGroup: (id: string, patch: Partial<Pick<TowerGroup, 'count' | 'xCenter'>>) => void;
-  setTowersPerGroup: (count: number) => void;
-  setGroupsXCenter: (xCenter: number) => void;
+  updateTowerGroup: (id: string, patch: Partial<Pick<TowerGroup, 'zPosM' | 'postXs' | 'postWidthM'>>) => void;
+
+  addTier: () => void;
+  removeTier: (id: string) => void;
+  updateTier: (id: string, patch: Partial<Pick<TierDef, 'heightM' | 'railWidthM'>>) => void;
+
+  addAxle: () => void;
+  removeAxle: (id: string) => void;
+  updateAxle: (id: string, patch: Partial<Pick<AxleDef, 'zPosM' | 'trackWidthM' | 'wheelDiaM'>>) => void;
 
   autoLayout: () => void;
 }
@@ -93,7 +170,7 @@ export const useStore = create<State>()(
           const p = s.placements.find(pl => pl.id === id);
           const boat = p ? s.boats.find(b => b.id === p.boatId) : null;
           if (slung && boat && !['1x', '2x', '2-'].includes(boat.boatClass)) return s;
-          if (slung && p && p.tier === s.trailer.tiers - 1) return s;
+          if (slung && p && p.tier === s.trailer.tiers.length - 1) return s;
           return { placements: s.placements.map(pl => pl.id === id ? { ...pl, slung } : pl) };
         }),
 
@@ -105,24 +182,28 @@ export const useStore = create<State>()(
       clearAll: () => set({ boats: [], placements: [] }),
 
       addTowerGroup: () =>
-        set((s) => ({
-          trailer: {
-            ...s.trailer,
-            towerGroups: [
-              ...s.trailer.towerGroups,
-              { id: makeId(), count: s.trailer.towerGroups[0]?.count ?? 1, xCenter: s.trailer.towerGroups[0]?.xCenter ?? 0 },
-            ],
-          },
-        })),
+        set((s) => {
+          const groups = s.trailer.towerGroups;
+          const last = groups[groups.length - 1];
+          // Place the new group midway between the last group and the bed rear edge.
+          const rearEdge = -s.trailer.bedLengthM / 2 + 0.20;
+          const zPosM = last ? (last.zPosM + rearEdge) / 2 : 0;
+          return {
+            trailer: {
+              ...s.trailer,
+              towerGroups: [
+                ...groups,
+                { id: makeId(), zPosM, postXs: last ? [...last.postXs] : [0], postWidthM: last?.postWidthM ?? DEFAULT_POST_WIDTH },
+              ],
+            },
+          };
+        }),
 
       removeTowerGroup: (id) =>
         set((s) => {
           if (s.trailer.towerGroups.length <= 2) return s;
           return {
-            trailer: {
-              ...s.trailer,
-              towerGroups: s.trailer.towerGroups.filter(g => g.id !== id),
-            },
+            trailer: { ...s.trailer, towerGroups: s.trailer.towerGroups.filter(g => g.id !== id) },
           };
         }),
 
@@ -130,25 +211,63 @@ export const useStore = create<State>()(
         set((s) => ({
           trailer: {
             ...s.trailer,
-            towerGroups: s.trailer.towerGroups.map(g =>
-              g.id === id ? { ...g, ...patch } : g
-            ),
+            towerGroups: s.trailer.towerGroups.map(g => g.id === id ? { ...g, ...patch } : g),
           },
         })),
 
-      setTowersPerGroup: (count) =>
+      addTier: () =>
+        set((s) => {
+          const last = s.trailer.tiers[s.trailer.tiers.length - 1];
+          return {
+            trailer: {
+              ...s.trailer,
+              tiers: [
+                ...s.trailer.tiers,
+                { id: makeId(), heightM: last?.heightM ?? DEFAULT_TIER_HEIGHT, railWidthM: last?.railWidthM ?? s.trailer.trailerWidthM },
+              ],
+            },
+          };
+        }),
+
+      removeTier: (id) =>
+        set((s) => {
+          if (s.trailer.tiers.length <= 1) return s;
+          return { trailer: { ...s.trailer, tiers: s.trailer.tiers.filter(t => t.id !== id) } };
+        }),
+
+      updateTier: (id, patch) =>
         set((s) => ({
           trailer: {
             ...s.trailer,
-            towerGroups: s.trailer.towerGroups.map(g => ({ ...g, count })),
+            tiers: s.trailer.tiers.map(t => t.id === id ? { ...t, ...patch } : t),
           },
         })),
 
-      setGroupsXCenter: (xCenter) =>
+      addAxle: () =>
+        set((s) => {
+          const last = s.trailer.axles[s.trailer.axles.length - 1];
+          return {
+            trailer: {
+              ...s.trailer,
+              axles: [
+                ...s.trailer.axles,
+                { id: makeId(), zPosM: (last?.zPosM ?? 0) - 0.92, trackWidthM: last?.trackWidthM ?? 2.89, wheelDiaM: last?.wheelDiaM ?? 0.54 },
+              ],
+            },
+          };
+        }),
+
+      removeAxle: (id) =>
+        set((s) => {
+          if (s.trailer.axles.length <= 1) return s;
+          return { trailer: { ...s.trailer, axles: s.trailer.axles.filter(a => a.id !== id) } };
+        }),
+
+      updateAxle: (id, patch) =>
         set((s) => ({
           trailer: {
             ...s.trailer,
-            towerGroups: s.trailer.towerGroups.map(g => ({ ...g, xCenter })),
+            axles: s.trailer.axles.map(a => a.id === id ? { ...a, ...patch } : a),
           },
         })),
 
@@ -192,7 +311,7 @@ export const useStore = create<State>()(
         function tryPlace(boat: typeof boats[0], slung: boolean): boolean {
           // Normal boats fill from the top tier down; slung boats prioritise the
           // lower tiers first (bottom tier itself is excluded from slinging below).
-          const tierOrder = Array.from({ length: trailer.tiers }, (_, i) => i);
+          const tierOrder = Array.from({ length: trailer.tiers.length }, (_, i) => i);
           if (slung) tierOrder.reverse();
           for (const t of tierOrder) {
             const xStep = boat.widthM + GAP;
@@ -211,8 +330,8 @@ export const useStore = create<State>()(
                 })
                 .sort((a, b) => Math.abs(a - axleZ) - Math.abs(b - axleZ));
               for (const zM of validZs) {
-                if (slung && t === trailer.tiers - 1) continue;
-                if (t >= trailer.tiers - 2 && zM + boat.lengthM / 2 > bowFrontLimit) continue;
+                if (slung && t === trailer.tiers.length - 1) continue;
+                if (t >= trailer.tiers.length - 2 && zM + boat.lengthM / 2 > bowFrontLimit) continue;
                 if (!slung && t > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) continue;
                 const collision = newPlacements.some(p => {
                   if (p.tier !== t || !!p.slung !== slung) return false;
@@ -246,21 +365,19 @@ export const useStore = create<State>()(
     }),
     {
       name: 'rowing-trailer-planner',
-      version: 3,
+      version: 4,
       migrate: (state: unknown, version: number) => {
-        if (version < 2) return { trailer: DEFAULT_TRAILER, boats: [], placements: [] };
-        // v2→v3: normalise all tower groups to the same count and xCenter as the first group
-        const s = state as { trailer: { towerGroups?: { id: string; count: number; xCenter: number }[] }; boats: unknown[]; placements: unknown[] };
-        const groups = s.trailer?.towerGroups ?? [];
-        const count   = groups[0]?.count   ?? 1;
-        const xCenter = groups[0]?.xCenter ?? 0;
-        return {
-          ...s,
-          trailer: {
-            ...s.trailer,
-            towerGroups: groups.map(g => ({ ...g, count, xCenter })),
-          },
-        };
+        const s = state as { trailer?: Record<string, unknown>; boats?: unknown[]; placements?: unknown[] } | undefined;
+        if (!s || !s.trailer) return { trailer: DEFAULT_TRAILER, boats: [], placements: [] };
+        // v≤3 used a uniform model (tiers:number, towerGroups{count,xCenter}).
+        // Convert any such trailer into the explicit v4 geometry model.
+        const t = s.trailer as Record<string, unknown>;
+        const isLegacy = typeof t.tiers === 'number'
+          || (Array.isArray(t.towerGroups) && t.towerGroups[0] != null && 'count' in (t.towerGroups[0] as object));
+        if (version < 4 && isLegacy) {
+          return { ...s, trailer: legacyToTrailer(t as Parameters<typeof legacyToTrailer>[0]) };
+        }
+        return s;
       },
     }
   )

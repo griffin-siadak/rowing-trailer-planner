@@ -1,39 +1,32 @@
 import type { Trailer } from './types';
 
+// Longitudinal Z of each tower group, taken straight from the explicit model.
 export function computeTowerZs(trailer: Trailer): number[] {
-  const halfLen = trailer.bedLengthM / 2;
-  const towerInset = 0.20;
-  const towerSpan = trailer.bedLengthM - 2 * towerInset;
-  const n = Math.max(2, trailer.towerGroups.length);
-  return Array.from({ length: n }, (_, i) =>
-    halfLen - towerInset - (i / (n - 1)) * towerSpan
-  );
+  return trailer.towerGroups.map(g => g.zPosM);
 }
 
-// X positions for all posts within a tower group.
-// count=1 → [xCenter]; count=2 → auto-thirds; 3-4 → fixed pitch.
-export function getTowerXsForGroup(count: number, xCenter: number, trailerWidthM: number): number[] {
-  if (count === 1) return [xCenter];
-  if (count === 2) {
-    const offset = trailerWidthM / 6;
-    return [-offset, offset];
+// Vertical Y of each tier, accumulated from the bottom up.
+// tiers[i].heightM = the band height below tier i (bottom tier's = clearance above the tray).
+// Index 0 = top tier, last = bottom tier.
+export function tierYs(trailer: Trailer): number[] {
+  const n = trailer.tiers.length;
+  const ys = new Array<number>(n);
+  let acc = 0;
+  for (let i = n - 1; i >= 0; i--) {
+    acc += trailer.tiers[i]?.heightM ?? 0.55;
+    ys[i] = acc;
   }
-  const pitch = 0.28;
-  const half = (count - 1) * pitch / 2;
-  return Array.from({ length: count }, (_, i) => xCenter - half + i * pitch);
+  return ys;
 }
 
-// All tower post (x, z) positions for a trailer.
+// All tower post (x, z) positions for a trailer, from explicit post placements.
 export function computeTowerXZs(trailer: Trailer): { x: number; z: number }[] {
-  const towerZs = computeTowerZs(trailer);
   const result: { x: number; z: number }[] = [];
-  trailer.towerGroups.forEach((group, gi) => {
-    const tz = towerZs[gi];
-    if (tz === undefined) return;
-    getTowerXsForGroup(group.count, group.xCenter, trailer.trailerWidthM).forEach(tx => {
-      result.push({ x: tx, z: tz });
-    });
-  });
+  for (const group of trailer.towerGroups) {
+    for (const tx of group.postXs) {
+      result.push({ x: tx, z: group.zPosM });
+    }
+  }
   return result;
 }
 

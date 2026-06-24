@@ -229,6 +229,7 @@ export default function Layout() {
   const halfW   = trailer.trailerWidthM / 2;
   const bedLen  = trailer.bedLengthM;
   const trayW   = trailer.trailerWidthM;
+  const tierCount = trailer.tiers.length;
   // Bow of boats on the lowest 2 tiers cannot extend past half the tongue length
   const bowFrontLimit = halfLen + trailer.tongueLengthM / 2;
 
@@ -246,7 +247,7 @@ export default function Layout() {
     if (!svg) return;
     const svgHtml = svg.outerHTML;
 
-    const tierSummaries = Array.from({ length: trailer.tiers }, (_, t) => {
+    const tierSummaries = Array.from({ length: tierCount }, (_, t) => {
       const tierPlacements = placements.filter(p => p.tier === t);
       const counts = tierPlacements.reduce<Record<string, number>>((acc, p) => {
         const cls = boatById[p.boatId]?.boatClass ?? '?';
@@ -271,7 +272,7 @@ export default function Layout() {
       </style>
     </head><body>
       <h1>${trailer.name}</h1>
-      <div class="meta">${trailer.bedLengthM}m bed · ${trailer.tiers} tiers · ${placements.length} boats placed · Printed ${new Date().toLocaleDateString()}</div>
+      <div class="meta">${trailer.bedLengthM}m bed · ${tierCount} tiers · ${placements.length} boats placed · Printed ${new Date().toLocaleDateString()}</div>
       <table>${tierSummaries}</table>
       ${svgHtml}
       <script>window.onload = () => { window.print(); }<\/script>
@@ -283,13 +284,13 @@ export default function Layout() {
   const overhang = Math.max(MIN_OVERHANG, (maxBoatLen - bedLen) / 2 + 0.5);
 
   const svgH = HDR_H + overhang + bedLen + overhang;
-  const svgW = SVG_PAD + trailer.tiers * trayW + (trailer.tiers - 1) * COL_GAP + SVG_PAD;
+  const svgW = SVG_PAD + tierCount * trayW + (tierCount - 1) * COL_GAP + SVG_PAD;
 
   function isOk(tier: number, boatId: string, xM: number, zM: number, isSlung: boolean, excludeId?: string) {
     const boat = boatById[boatId];
     if (!boat) return false;
     if (!isValidZ(zM, boat.lengthM, towerZs)) return false;
-    if (tier >= trailer.tiers - 2 && zM + boat.lengthM / 2 > bowFrontLimit) return false;
+    if (tier >= tierCount - 2 && zM + boat.lengthM / 2 > bowFrontLimit) return false;
     if (tier > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) return false;
     return !placements.some(p => {
       if (p.tier !== tier || p.id === excludeId) return false;
@@ -321,7 +322,7 @@ export default function Layout() {
     }
 
     if (pendingBoatId) {
-      const tier  = tierFromSvgX(svgEl, e.clientX, trayW, trailer.tiers);
+      const tier  = tierFromSvgX(svgEl, e.clientX, trayW, tierCount);
       const boat  = boatById[pendingBoatId];
       if (!boat) return;
       const { xM, zM } = svgPtToScene(svgEl, e.clientX, e.clientY, trayW, halfLen, halfW, tier, overhang);
@@ -337,7 +338,7 @@ export default function Layout() {
     const boat = boatById[drag.boatId];
     if (!boat) return;
     const svgEl = e.currentTarget;
-    const newTier = tierFromSvgX(svgEl, e.clientX, trayW, trailer.tiers);
+    const newTier = tierFromSvgX(svgEl, e.clientX, trayW, tierCount);
     const { xM: ptrX, zM: ptrZ } = svgPtToScene(svgEl, e.clientX, e.clientY, trayW, halfLen, halfW, newTier, overhang);
     const rawZ = ptrZ - drag.offsetZ;
     const rawX = ptrX - drag.offsetX;
@@ -414,7 +415,7 @@ export default function Layout() {
             placements={placements.filter(p => p.zCenterM >= 0)}
             boatById={boatById}
             boatColorIdx={boatColorIdx}
-            tiers={trailer.tiers}
+            tiers={tierCount}
             trayW={trayW}
           />
         </div>
@@ -425,7 +426,7 @@ export default function Layout() {
             placements={placements.filter(p => p.zCenterM < 0)}
             boatById={boatById}
             boatColorIdx={boatColorIdx}
-            tiers={trailer.tiers}
+            tiers={tierCount}
             trayW={trayW}
           />
         </div>
@@ -441,7 +442,7 @@ export default function Layout() {
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
         >
-          {Array.from({ length: trailer.tiers }, (_, t) => {
+          {Array.from({ length: tierCount }, (_, t) => {
             const cx = colX(t, trayW);
             const isDragTarget = drag?.tier === t;
             return (
@@ -473,7 +474,7 @@ export default function Layout() {
                   );
                 })}
                 {/* Bow limit line on the lowest 2 tiers */}
-                {t >= trailer.tiers - 2 && (() => {
+                {t >= tierCount - 2 && (() => {
                   const limY = zToSvgY(bowFrontLimit, halfLen, overhang);
                   return (
                     <g>
@@ -493,7 +494,7 @@ export default function Layout() {
                   const renderTier = isDragging ? drag!.tier : t;
                   if (renderTier !== t) return null;
                   const isSlung = !!p.slung;
-                  const canSling = ['1x', '2x', '2-'].includes(boat.boatClass) && p.tier < trailer.tiers - 1;
+                  const canSling = ['1x', '2x', '2-'].includes(boat.boatClass) && p.tier < tierCount - 1;
                   const color = BOAT_COLORS[boatColorIdx[p.boatId] % BOAT_COLORS.length];
                   const invalid = isDragging ? !drag!.valid : !isOk(t, p.boatId, dispX, dispZ, isSlung, p.id);
                   const boatCX = cx + (halfW - dispX);
