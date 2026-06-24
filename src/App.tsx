@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import TrailerSetup from './pages/TrailerSetup';
+import TrailerEditor from './pages/TrailerEditor';
 import BoatRoster from './pages/BoatRoster';
 import Layout from './pages/Layout';
 import Visualizer3D from './pages/Visualizer3D';
@@ -27,7 +27,7 @@ export default function App() {
         {tab === 'layout'  && <Layout />}
         {tab === 'boats'   && <BoatRoster />}
         {tab === '3d'      && <Visualizer3D />}
-        {tab === 'trailer' && <TrailerSetup />}
+        {tab === 'trailer' && <TrailerEditor />}
       </main>
 
       <nav style={{ background: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', flexShrink: 0 }}>
