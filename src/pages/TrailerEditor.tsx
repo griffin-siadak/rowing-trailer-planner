@@ -230,10 +230,15 @@ type EndDrag =
   | { kind: 'width' }
   | { kind: 'tierH'; i: number }
   | { kind: 'tierW'; i: number }
-  | { kind: 'track' };
+  | { kind: 'track' }
+  | { kind: 'postX' };
 
 function EndView({ trailer }: { trailer: Trailer }) {
-  const { updateTrailer, updateTier, updateAxle } = useStore();
+  const { updateTrailer, updateTier, updateAxle, updateTowerGroup } = useStore();
+  // Posts are edited uniformly: every tower group shares the same lateral layout.
+  const postsPerTower = trailer.towerGroups[0]?.postXs.length ?? 1;
+  const postOffset = postsPerTower > 1 ? Math.abs(trailer.towerGroups[0].postXs[1]) : 0;
+  const setUniformPostXs = (xs: number[]) => trailer.towerGroups.forEach(grp => updateTowerGroup(grp.id, { postXs: xs }));
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<EndDrag | null>(null);
   const { ref, open, overlay } = useInlineEdit();
@@ -281,6 +286,9 @@ function EndView({ trailer }: { trailer: Trailer }) {
       // Drag tier i vertically → adjust its band height (distance to the tier below).
       const belowY = g.tYs[drag.i + 1] ?? 0;   // bottom tier measures from the deck datum (0)
       updateTier(trailer.tiers[drag.i].id, { heightM: Math.max(0.15, Math.min(1.5, my - belowY)) });
+    } else if (drag.kind === 'postX' && postsPerTower > 1) {
+      const off = Math.max(0.05, Math.min(trailer.trailerWidthM / 2 - 0.05, Math.abs(mx)));
+      setUniformPostXs([-off, off]);
     }
   }
 
@@ -362,19 +370,33 @@ function EndView({ trailer }: { trailer: Trailer }) {
         );
       })}
 
-      {/* tower posts (vertical at each unique X) */}
+      {/* tower posts (vertical at each unique X) — draggable laterally (uniform) */}
       {postXs.map((px, i) => (
-        <line key={i} x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke={COL.post} strokeWidth={postW} />
+        <g key={i}>
+          <line x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke="transparent" strokeWidth={0.18}
+            style={{ cursor: postsPerTower > 1 ? 'ew-resize' : 'default' }}
+            onPointerDown={(e) => postsPerTower > 1 && startDrag(e, { kind: 'postX' })} />
+          <line x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke={COL.post} strokeWidth={postW} />
+        </g>
       ))}
+      <text x={ex(0)} y={ey(g.topY) - 0.10} textAnchor="middle" fontSize={fs * 0.72} fill={COL.post}
+        style={{ cursor: postsPerTower > 1 ? 'text' : 'default' }}
+        onClick={(e) => postsPerTower > 1 && open(e, postOffset, (n) => {
+          const off = Math.max(0.05, Math.min(trailer.trailerWidthM / 2 - 0.05, n));
+          setUniformPostXs([-off, off]);
+        })}>
+        {postsPerTower > 1 ? `posts ±${postOffset.toFixed(2)} m` : 'single centre post'}
+      </text>
     </svg>
     {overlay}
     </div>
   );
 }
 
-function Stepper({ label, count, min, onAdd, onRemove }: {
-  label: string; count: number; min: number; onAdd: () => void; onRemove: () => void;
+function Stepper({ label, count, min, max, onAdd, onRemove }: {
+  label: string; count: number; min: number; max?: number; onAdd: () => void; onRemove: () => void;
 }) {
+  const atMax = max != null && count >= max;
   const btn = (enabled: boolean): React.CSSProperties => ({
     width: 30, height: 30, borderRadius: 6, border: '1px solid #cbd5e1', background: 'white',
     fontSize: 16, lineHeight: 1, cursor: enabled ? 'pointer' : 'not-allowed',
@@ -385,16 +407,25 @@ function Stepper({ label, count, min, onAdd, onRemove }: {
       <span style={{ fontSize: 13, fontWeight: 600, color: '#475569', flex: 1 }}>{label}</span>
       <button style={btn(count > min)} disabled={count <= min} onClick={onRemove}>−</button>
       <span style={{ fontWeight: 700, fontSize: 15, minWidth: 16, textAlign: 'center' }}>{count}</span>
-      <button style={btn(true)} onClick={onAdd}>+</button>
+      <button style={btn(!atMax)} disabled={atMax} onClick={onAdd}>+</button>
     </div>
   );
 }
 
 export default function TrailerEditor() {
   const {
-    trailer, updateTrailer,
+    trailer, updateTrailer, updateTowerGroup,
     addTier, removeTier, addTowerGroup, removeTowerGroup, addAxle, removeAxle, clearPlacements,
   } = useStore();
+
+  const postsPerTower = trailer.towerGroups[0]?.postXs.length ?? 1;
+  const setPosts = (count: number) => {
+    const off = trailer.trailerWidthM / 6;
+    const xs = count <= 1 ? [0] : [-off, off];
+    trailer.towerGroups.forEach(g => updateTowerGroup(g.id, { postXs: xs }));
+  };
+  const setPostWidth = (w: number) =>
+    trailer.towerGroups.forEach(g => updateTowerGroup(g.id, { postWidthM: Math.max(0.02, Math.min(0.3, w)) }));
 
   return (
     <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
@@ -414,6 +445,8 @@ export default function TrailerEditor() {
             onAdd={addTowerGroup} onRemove={() => removeTowerGroup(trailer.towerGroups[trailer.towerGroups.length - 1].id)} />
           <Stepper label="Axles" count={trailer.axles.length} min={1}
             onAdd={addAxle} onRemove={() => removeAxle(trailer.axles[trailer.axles.length - 1].id)} />
+          <Stepper label="Posts / tower" count={postsPerTower} min={1} max={2}
+            onAdd={() => setPosts(2)} onRemove={() => setPosts(1)} />
         </div>
       </div>
 
@@ -435,6 +468,7 @@ export default function TrailerEditor() {
             ['Bed length (m)', 'bedLengthM', 'number'],
             ['Width (m)', 'trailerWidthM', 'number'],
             ['Tongue (m)', 'tongueLengthM', 'number'],
+            ['Beam width (m)', 'beamWidthM', 'number'],
           ] as const).map(([label, key, type]) => (
             <label key={key} style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
               {label}
@@ -450,6 +484,14 @@ export default function TrailerEditor() {
               />
             </label>
           ))}
+          <label style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
+            Post width (m)
+            <input type="number" step="0.01"
+              value={trailer.towerGroups[0]?.postWidthM ?? 0.08}
+              onChange={(e) => setPostWidth(Number(e.target.value))}
+              style={{ width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+            />
+          </label>
         </div>
       </div>
     </div>
