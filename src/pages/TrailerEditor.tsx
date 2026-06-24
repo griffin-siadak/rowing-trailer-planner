@@ -46,39 +46,94 @@ const panelTitle: React.CSSProperties = {
 };
 
 // ─── Side profile: looking from the side (Z = length horizontal, Y = height) ──
+type SideDrag =
+  | { kind: 'bed' }
+  | { kind: 'tongue' }
+  | { kind: 'towerZ'; id: string }
+  | { kind: 'axleZ'; id: string };
+
 function SideView({ trailer }: { trailer: Trailer }) {
+  const { updateTrailer, updateTowerGroup, updateAxle } = useStore();
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [drag, setDrag] = useState<SideDrag | null>(null);
+
   const g = trailerGeom(trailer);
   const pad = 0.6;
-  const frontMax = g.halfLen + trailer.tongueLengthM;
-  // Front (+Z, tongue) on the left.
-  const sx = (z: number) => (frontMax + pad) - z;
-  const yTop = g.topY + pad;
-  const sy = (y: number) => yTop - y;
 
-  const vbW = (frontMax + pad) - (-g.halfLen - pad);
-  const vbH = yTop - (g.realFloor - pad * 0.6);
+  // Coordinate frame is frozen while dragging so grabbed extremities track the
+  // cursor (otherwise the auto-fitting viewBox would rescale out from under it).
+  const liveC = { frontMax: g.halfLen + trailer.tongueLengthM, halfLen: g.halfLen, yTop: g.topY + pad, realFloor: g.realFloor };
+  const frozen = useRef(liveC);
+  if (!drag) frozen.current = liveC;
+  const C = drag ? frozen.current : liveC;
+
+  const sx = (z: number) => (C.frontMax + pad) - z;   // front (+Z, tongue) on the left
+  const sy = (y: number) => C.yTop - y;
+  const vbW = C.frontMax + C.halfLen + 2 * pad;
+  const vbH = C.yTop - (C.realFloor - pad * 0.6);
 
   const stroke = 0.03;
   const fs = 0.20;
+  const HANDLE = 0.16;
+
+  function toMeters(clientX: number, clientY: number) {
+    const svg = svgRef.current!;
+    const pt = svg.createSVGPoint();
+    pt.x = clientX; pt.y = clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM()!.inverse());
+    return { mz: (C.frontMax + pad) - p.x, my: C.yTop - p.y };
+  }
+
+  function onMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (!drag) return;
+    const { mz } = toMeters(e.clientX, e.clientY);
+    if (drag.kind === 'bed') {
+      updateTrailer({ bedLengthM: Math.max(2, Math.min(20, Math.abs(mz) * 2)) });
+    } else if (drag.kind === 'tongue') {
+      updateTrailer({ tongueLengthM: Math.max(0.3, Math.min(6, mz - g.halfLen)) });
+    } else if (drag.kind === 'towerZ') {
+      updateTowerGroup(drag.id, { zPosM: Math.max(-g.halfLen - 1, Math.min(g.halfLen + 1, mz)) });
+    } else if (drag.kind === 'axleZ') {
+      updateAxle(drag.id, { zPosM: Math.max(-g.halfLen - 2, Math.min(g.halfLen, mz)) });
+    }
+  }
+
+  function startDrag(e: React.PointerEvent, d: SideDrag) {
+    e.stopPropagation();
+    frozen.current = liveC;
+    try { svgRef.current?.setPointerCapture(e.pointerId); } catch { /* non-active pointer */ }
+    setDrag(d);
+  }
+  function endDrag(e: React.PointerEvent<SVGSVGElement>) {
+    if (drag) {
+      try { svgRef.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      setDrag(null);
+    }
+  }
 
   return (
-    <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width: '100%', maxHeight: 340, display: 'block', margin: '0 auto' }}>
+    <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
+      style={{ width: '100%', maxHeight: 340, display: 'block', margin: '0 auto', touchAction: 'none' }}
+      onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
+    >
       {/* ground */}
       <line x1={0} y1={sy(g.realFloor)} x2={vbW} y2={sy(g.realFloor)} stroke={COL.ground} strokeWidth={0.04} />
 
       {/* chassis deck beam (bed) */}
-      <rect x={sx(g.halfLen)} y={sy(DECK_Y)} width={sx(-g.halfLen) - sx(g.halfLen)} height={0.14}
-        fill={COL.beam} />
+      <rect x={sx(g.halfLen)} y={sy(DECK_Y)} width={sx(-g.halfLen) - sx(g.halfLen)} height={0.14} fill={COL.beam} />
 
       {/* tongue */}
-      <line x1={sx(frontMax)} y1={sy(DECK_Y) + 0.07} x2={sx(g.halfLen)} y2={sy(DECK_Y) + 0.07}
+      <line x1={sx(g.halfLen + trailer.tongueLengthM)} y1={sy(DECK_Y) + 0.07} x2={sx(g.halfLen)} y2={sy(DECK_Y) + 0.07}
         stroke={COL.tongue} strokeWidth={0.06} strokeLinecap="round" />
-      <text x={(sx(frontMax) + sx(g.halfLen)) / 2} y={sy(DECK_Y) + 0.07 - 0.12}
+      <rect x={sx(g.halfLen + trailer.tongueLengthM) - HANDLE / 2} y={sy(DECK_Y) + 0.07 - HANDLE / 2}
+        width={HANDLE} height={HANDLE} rx={0.03} fill={COL.tongue}
+        style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tongue' })} />
+      <text x={(sx(g.halfLen + trailer.tongueLengthM) + sx(g.halfLen)) / 2} y={sy(DECK_Y) + 0.07 - 0.12}
         textAnchor="middle" fontSize={fs * 0.85} fill={COL.label}>
         tongue {trailer.tongueLengthM.toFixed(2)} m
       </text>
 
-      {/* tier rails (horizontal lines spanning the tower extent) */}
+      {/* tier rails */}
       {g.tYs.map((y, t) => (
         <g key={t}>
           <line x1={sx(g.frontZ)} y1={sy(y)} x2={sx(g.rearZ)} y2={sy(y)} stroke={COL.tier} strokeWidth={stroke} />
@@ -88,9 +143,11 @@ function SideView({ trailer }: { trailer: Trailer }) {
         </g>
       ))}
 
-      {/* tower groups (vertical posts at their zPos) */}
+      {/* tower groups — vertical posts, draggable along Z */}
       {trailer.towerGroups.map((grp, i) => (
         <g key={grp.id}>
+          <line x1={sx(grp.zPosM)} y1={sy(DECK_Y)} x2={sx(grp.zPosM)} y2={sy(g.topY)} stroke="transparent" strokeWidth={0.20}
+            style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'towerZ', id: grp.id })} />
           <line x1={sx(grp.zPosM)} y1={sy(DECK_Y)} x2={sx(grp.zPosM)} y2={sy(g.topY)}
             stroke={COL.post} strokeWidth={Math.max(0.03, grp.postWidthM)} />
           <text x={sx(grp.zPosM)} y={sy(g.topY) - 0.10} textAnchor="middle" fontSize={fs * 0.8} fill={COL.post}>
@@ -99,15 +156,17 @@ function SideView({ trailer }: { trailer: Trailer }) {
         </g>
       ))}
 
-      {/* axles / wheels */}
+      {/* axles / wheels — draggable along Z */}
       {trailer.axles.map((a) => (
-        <g key={a.id}>
+        <g key={a.id} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'axleZ', id: a.id })}>
           <circle cx={sx(a.zPosM)} cy={sy(g.axleCentY)} r={a.wheelDiaM / 2} fill={COL.wheel} />
           <circle cx={sx(a.zPosM)} cy={sy(g.axleCentY)} r={a.wheelDiaM / 2 * 0.45} fill="#b0bbc4" />
         </g>
       ))}
 
-      {/* bed length dimension */}
+      {/* bed length + rear-edge handle */}
+      <rect x={sx(-g.halfLen) - HANDLE / 2} y={sy(DECK_Y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
+        fill={COL.frame} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'bed' })} />
       <text x={(sx(g.halfLen) + sx(-g.halfLen)) / 2} y={sy(g.realFloor) + 0.30}
         textAnchor="middle" fontSize={fs} fill={COL.dim}>
         bed {trailer.bedLengthM.toFixed(2)} m
@@ -258,10 +317,11 @@ export default function TrailerEditor() {
   return (
     <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
       <div style={{ ...card, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: 13, color: '#1d4ed8' }}>
-        Visual trailer editor. <strong>End cross-section:</strong> drag the square handles to
-        adjust trailer width, each tier's height (drag the rail up/down) and rail width (drag the
-        end handle), and the wheel track. Changes show live here and in the 3D view. Side-profile
-        dragging and click-to-type fields are coming next.
+        Visual trailer editor — drag the handles in either view to reshape the trailer; changes
+        show live here and in the 3D view. <strong>Side profile:</strong> tongue length, bed length
+        (rear edge), tower-group spacing (drag a post), and axle positions (drag a wheel).
+        <strong> End cross-section:</strong> trailer width, each tier's height &amp; rail width, and
+        wheel track. Click-to-type fields and add/remove controls are coming next.
       </div>
 
       <div style={card}>
