@@ -372,18 +372,49 @@ function EndView({ trailer }: { trailer: Trailer }) {
   );
 }
 
+function Stepper({ label, count, min, onAdd, onRemove }: {
+  label: string; count: number; min: number; onAdd: () => void; onRemove: () => void;
+}) {
+  const btn = (enabled: boolean): React.CSSProperties => ({
+    width: 30, height: 30, borderRadius: 6, border: '1px solid #cbd5e1', background: 'white',
+    fontSize: 16, lineHeight: 1, cursor: enabled ? 'pointer' : 'not-allowed',
+    color: enabled ? '#1e293b' : '#cbd5e1',
+  });
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, flex: '1 1 180px' }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: '#475569', flex: 1 }}>{label}</span>
+      <button style={btn(count > min)} disabled={count <= min} onClick={onRemove}>−</button>
+      <span style={{ fontWeight: 700, fontSize: 15, minWidth: 16, textAlign: 'center' }}>{count}</span>
+      <button style={btn(true)} onClick={onAdd}>+</button>
+    </div>
+  );
+}
+
 export default function TrailerEditor() {
-  const { trailer, updateTrailer } = useStore();
+  const {
+    trailer, updateTrailer,
+    addTier, removeTier, addTowerGroup, removeTowerGroup, addAxle, removeAxle, clearPlacements,
+  } = useStore();
 
   return (
     <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
       <div style={{ ...card, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: 13, color: '#1d4ed8' }}>
-        Visual trailer editor — drag the handles in either view to reshape the trailer; changes
-        show live here and in the 3D view. <strong>Side profile:</strong> tongue length, bed length
-        (rear edge), tower-group spacing (drag a post), and axle positions (drag a wheel).
-        <strong> End cross-section:</strong> trailer width, each tier's height &amp; rail width, and
-        wheel track. <strong>Or click any value</strong> to type an exact number. Tower posts and
-        add/remove controls are coming next.
+        Visual trailer editor — drag the handles in either view to reshape the trailer, or click any
+        value to type an exact number; changes show live here and in the 3D view.
+        <strong> Side profile:</strong> tongue, bed length, tower-group spacing, axle positions.
+        <strong> End cross-section:</strong> width, each tier's height &amp; rail width, wheel track.
+      </div>
+
+      <div style={card}>
+        <div style={panelTitle}>Structure</div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <Stepper label="Tiers" count={trailer.tiers.length} min={1}
+            onAdd={addTier} onRemove={() => { removeTier(trailer.tiers[trailer.tiers.length - 1].id); clearPlacements(); }} />
+          <Stepper label="Tower groups" count={trailer.towerGroups.length} min={2}
+            onAdd={addTowerGroup} onRemove={() => removeTowerGroup(trailer.towerGroups[trailer.towerGroups.length - 1].id)} />
+          <Stepper label="Axles" count={trailer.axles.length} min={1}
+            onAdd={addAxle} onRemove={() => removeAxle(trailer.axles[trailer.axles.length - 1].id)} />
+        </div>
       </div>
 
       <div style={card}>

@@ -185,9 +185,14 @@ export const useStore = create<State>()(
         set((s) => {
           const groups = s.trailer.towerGroups;
           const last = groups[groups.length - 1];
-          // Place the new group midway between the last group and the bed rear edge.
-          const rearEdge = -s.trailer.bedLengthM / 2 + 0.20;
-          const zPosM = last ? (last.zPosM + rearEdge) / 2 : 0;
+          // Drop the new group into the largest gap between existing groups (and bed edges).
+          const halfLen = s.trailer.bedLengthM / 2 - 0.20;
+          const pts = [-halfLen, ...groups.map(g => g.zPosM).sort((a, b) => a - b), halfLen];
+          let zPosM = 0, bestGap = -1;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const gap = pts[i + 1] - pts[i];
+            if (gap > bestGap) { bestGap = gap; zPosM = (pts[i] + pts[i + 1]) / 2; }
+          }
           return {
             trailer: {
               ...s.trailer,
