@@ -45,6 +45,48 @@ const panelTitle: React.CSSProperties = {
   letterSpacing: '0.5px', marginBottom: 6,
 };
 
+// Inline numeric editor: click an SVG readout to type an exact value. The input
+// is an HTML overlay positioned over the clicked <text> (crisp, unlike scaled
+// foreignObject). Each editable text passes its current value + a commit fn.
+function useInlineEdit() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edit, setEdit] = useState<
+    null | { left: number; top: number; draft: string; commit: (n: number) => void }
+  >(null);
+
+  function open(e: React.MouseEvent, value: number, commit: (n: number) => void) {
+    e.stopPropagation();
+    const tb = (e.currentTarget as Element).getBoundingClientRect();
+    const cb = ref.current!.getBoundingClientRect();
+    setEdit({
+      left: tb.left - cb.left + tb.width / 2 - 36,
+      top: tb.top - cb.top - 2,
+      draft: String(+value.toFixed(3)),
+      commit,
+    });
+  }
+  function commitNow() {
+    if (!edit) return;
+    const n = parseFloat(edit.draft);
+    if (!isNaN(n)) edit.commit(n);
+    setEdit(null);
+  }
+  const overlay = edit ? (
+    <input
+      autoFocus type="number" value={edit.draft}
+      onChange={(e) => setEdit({ ...edit, draft: e.target.value })}
+      onBlur={commitNow}
+      onKeyDown={(e) => { if (e.key === 'Enter') commitNow(); if (e.key === 'Escape') setEdit(null); }}
+      style={{
+        position: 'absolute', left: edit.left, top: edit.top, width: 72,
+        fontSize: 11, padding: '1px 4px', border: '1px solid #1d4ed8',
+        borderRadius: 4, zIndex: 5, boxSizing: 'border-box',
+      }}
+    />
+  ) : null;
+  return { ref, open, overlay };
+}
+
 // ─── Side profile: looking from the side (Z = length horizontal, Y = height) ──
 type SideDrag =
   | { kind: 'bed' }
@@ -53,9 +95,10 @@ type SideDrag =
   | { kind: 'axleZ'; id: string };
 
 function SideView({ trailer }: { trailer: Trailer }) {
-  const { updateTrailer, updateTowerGroup, updateAxle } = useStore();
+  const { updateTrailer, updateTowerGroup, updateAxle, updateTier } = useStore();
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<SideDrag | null>(null);
+  const { ref, open, overlay } = useInlineEdit();
 
   const g = trailerGeom(trailer);
   const pad = 0.6;
@@ -112,6 +155,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
   }
 
   return (
+    <div ref={ref} style={{ position: 'relative' }}>
     <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
       style={{ width: '100%', maxHeight: 340, display: 'block', margin: '0 auto', touchAction: 'none' }}
       onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
@@ -129,7 +173,8 @@ function SideView({ trailer }: { trailer: Trailer }) {
         width={HANDLE} height={HANDLE} rx={0.03} fill={COL.tongue}
         style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tongue' })} />
       <text x={(sx(g.halfLen + trailer.tongueLengthM) + sx(g.halfLen)) / 2} y={sy(DECK_Y) + 0.07 - 0.12}
-        textAnchor="middle" fontSize={fs * 0.85} fill={COL.label}>
+        textAnchor="middle" fontSize={fs * 0.85} fill={COL.label} style={{ cursor: 'text' }}
+        onClick={(e) => open(e, trailer.tongueLengthM, (n) => updateTrailer({ tongueLengthM: Math.max(0.3, Math.min(6, n)) }))}>
         tongue {trailer.tongueLengthM.toFixed(2)} m
       </text>
 
@@ -137,7 +182,8 @@ function SideView({ trailer }: { trailer: Trailer }) {
       {g.tYs.map((y, t) => (
         <g key={t}>
           <line x1={sx(g.frontZ)} y1={sy(y)} x2={sx(g.rearZ)} y2={sy(y)} stroke={COL.tier} strokeWidth={stroke} />
-          <text x={sx(g.rearZ) + 0.12} y={sy(y) + 0.16} textAnchor="start" fontSize={fs * 0.8} fill={COL.label}>
+          <text x={sx(g.rearZ) + 0.12} y={sy(y) + 0.16} textAnchor="start" fontSize={fs * 0.8} fill={COL.label} style={{ cursor: 'text' }}
+            onClick={(e) => open(e, trailer.tiers[t].heightM, (n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) }))}>
             {TIER_NAMES[t] ?? `T${t + 1}`} · {trailer.tiers[t].heightM.toFixed(2)} m
           </text>
         </g>
@@ -150,7 +196,8 @@ function SideView({ trailer }: { trailer: Trailer }) {
             style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'towerZ', id: grp.id })} />
           <line x1={sx(grp.zPosM)} y1={sy(DECK_Y)} x2={sx(grp.zPosM)} y2={sy(g.topY)}
             stroke={COL.post} strokeWidth={Math.max(0.03, grp.postWidthM)} />
-          <text x={sx(grp.zPosM)} y={sy(g.topY) - 0.10} textAnchor="middle" fontSize={fs * 0.8} fill={COL.post}>
+          <text x={sx(grp.zPosM)} y={sy(g.topY) - 0.10} textAnchor="middle" fontSize={fs * 0.8} fill={COL.post} style={{ cursor: 'text' }}
+            onClick={(e) => open(e, grp.zPosM, (n) => updateTowerGroup(grp.id, { zPosM: Math.max(-g.halfLen - 1, Math.min(g.halfLen + 1, n)) }))}>
             G{i + 1} · z{grp.zPosM >= 0 ? '+' : ''}{grp.zPosM.toFixed(2)}
           </text>
         </g>
@@ -168,10 +215,13 @@ function SideView({ trailer }: { trailer: Trailer }) {
       <rect x={sx(-g.halfLen) - HANDLE / 2} y={sy(DECK_Y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
         fill={COL.frame} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'bed' })} />
       <text x={(sx(g.halfLen) + sx(-g.halfLen)) / 2} y={sy(g.realFloor) + 0.30}
-        textAnchor="middle" fontSize={fs} fill={COL.dim}>
+        textAnchor="middle" fontSize={fs} fill={COL.dim} style={{ cursor: 'text' }}
+        onClick={(e) => open(e, trailer.bedLengthM, (n) => updateTrailer({ bedLengthM: Math.max(2, Math.min(20, n)) }))}>
         bed {trailer.bedLengthM.toFixed(2)} m
       </text>
     </svg>
+    {overlay}
+    </div>
   );
 }
 
@@ -186,6 +236,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
   const { updateTrailer, updateTier, updateAxle } = useStore();
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<EndDrag | null>(null);
+  const { ref, open, overlay } = useInlineEdit();
 
   const g = trailerGeom(trailer);
   const maxRail  = Math.max(trailer.trailerWidthM, ...trailer.tiers.map(t => t.railWidthM));
@@ -246,6 +297,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
   }
 
   return (
+    <div ref={ref} style={{ position: 'relative' }}>
     <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
       style={{ width: '100%', maxHeight: 360, display: 'block', margin: '0 auto', touchAction: 'none' }}
       onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
@@ -267,7 +319,8 @@ function EndView({ trailer }: { trailer: Trailer }) {
           width={HANDLE} height={HANDLE} rx={0.03} fill={COL.frame}
           style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'width' })} />
       ))}
-      <text x={ex(0)} y={ey(DECK_Y) - 0.16} textAnchor="middle" fontSize={fs * 0.8} fill={COL.frame}>
+      <text x={ex(0)} y={ey(DECK_Y) - 0.16} textAnchor="middle" fontSize={fs * 0.8} fill={COL.frame} style={{ cursor: 'text' }}
+        onClick={(e) => open(e, trailer.trailerWidthM, (n) => updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, n)) }))}>
         width {trailer.trailerWidthM.toFixed(2)} m
       </text>
 
@@ -280,7 +333,8 @@ function EndView({ trailer }: { trailer: Trailer }) {
           width={HANDLE} height={HANDLE} rx={0.03} fill="#3b82f6"
           style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'track' })} />
       ))}
-      <text x={ex(0)} y={ey(g.axleCentY) + 0.04} textAnchor="middle" fontSize={fs * 0.7} fill="white">
+      <text x={ex(0)} y={ey(g.axleCentY) + 0.04} textAnchor="middle" fontSize={fs * 0.7} fill="white" style={{ cursor: 'text' }}
+        onClick={(e) => open(e, maxTrack, (n) => { const tw = Math.max(0.6, Math.min(4, n)); trailer.axles.forEach(a => updateAxle(a.id, { trackWidthM: tw })); })}>
         track {maxTrack.toFixed(2)} m
       </text>
 
@@ -296,8 +350,13 @@ function EndView({ trailer }: { trailer: Trailer }) {
             {/* width handle at right end */}
             <rect x={ex(hw) - HANDLE / 2} y={ey(y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
               fill={COL.tier} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tierW', i: t })} />
-            <text x={ex(-hw) - 0.12} y={ey(y) + 0.05} textAnchor="end" fontSize={fs * 0.7} fill={COL.label}>
-              {(TIER_NAMES[t] ?? `T${t + 1}`)}: h{trailer.tiers[t].heightM.toFixed(2)} · w{trailer.tiers[t].railWidthM.toFixed(2)}
+            <text x={ex(-hw) - 0.12} y={ey(y) - 0.05} textAnchor="end" fontSize={fs * 0.7} fill={COL.label} style={{ cursor: 'text' }}
+              onClick={(e) => open(e, trailer.tiers[t].heightM, (n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) }))}>
+              {(TIER_NAMES[t] ?? `T${t + 1}`)}: h{trailer.tiers[t].heightM.toFixed(2)}
+            </text>
+            <text x={ex(-hw) - 0.12} y={ey(y) + 0.18} textAnchor="end" fontSize={fs * 0.7} fill={COL.label} style={{ cursor: 'text' }}
+              onClick={(e) => open(e, trailer.tiers[t].railWidthM, (n) => updateTier(trailer.tiers[t].id, { railWidthM: Math.max(0.3, Math.min(4, n)) }))}>
+              w{trailer.tiers[t].railWidthM.toFixed(2)}
             </text>
           </g>
         );
@@ -308,6 +367,8 @@ function EndView({ trailer }: { trailer: Trailer }) {
         <line key={i} x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke={COL.post} strokeWidth={postW} />
       ))}
     </svg>
+    {overlay}
+    </div>
   );
 }
 
@@ -321,7 +382,8 @@ export default function TrailerEditor() {
         show live here and in the 3D view. <strong>Side profile:</strong> tongue length, bed length
         (rear edge), tower-group spacing (drag a post), and axle positions (drag a wheel).
         <strong> End cross-section:</strong> trailer width, each tier's height &amp; rail width, and
-        wheel track. Click-to-type fields and add/remove controls are coming next.
+        wheel track. <strong>Or click any value</strong> to type an exact number. Tower posts and
+        add/remove controls are coming next.
       </div>
 
       <div style={card}>
