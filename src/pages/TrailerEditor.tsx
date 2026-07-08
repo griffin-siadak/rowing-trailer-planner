@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useStore } from '../store';
 import { tierYs } from '../utils';
 import type { Trailer } from '../types';
+import { useIsMobile } from '../useIsMobile';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
 
@@ -110,6 +111,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<SideDrag | null>(null);
   const { ref, open, overlay } = useInlineEdit();
+  const isMobile = useIsMobile();
 
   const g = trailerGeom(trailer);
   const pad = 0.6;
@@ -128,7 +130,8 @@ function SideView({ trailer }: { trailer: Trailer }) {
 
   const stroke = 0.03;
   const fs = 0.20;
-  const HANDLE = 0.16;
+  const HANDLE = isMobile ? 0.30 : 0.16;
+  const HIT = isMobile ? 0.40 : 0.20;   // invisible hit-line width for post/axle drags
 
   function toMeters(clientX: number, clientY: number) {
     const svg = svgRef.current!;
@@ -182,6 +185,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
         stroke={COL.tongue} strokeWidth={0.06} strokeLinecap="round" />
       <rect x={sx(g.halfLen + trailer.tongueLengthM) - HANDLE / 2} y={sy(DECK_Y) + 0.07 - HANDLE / 2}
         width={HANDLE} height={HANDLE} rx={0.03} fill={COL.tongue}
+        stroke="transparent" strokeWidth={isMobile ? 0.7 : 0}
         style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tongue' })} />
       <text x={(sx(g.halfLen + trailer.tongueLengthM) + sx(g.halfLen)) / 2} y={sy(DECK_Y) + 0.07 - 0.12}
         textAnchor="middle" fontSize={fs * 0.85} fill={COL.label} style={{ cursor: 'text' }}
@@ -203,7 +207,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
       {/* tower groups — vertical posts, draggable along Z */}
       {trailer.towerGroups.map((grp, i) => (
         <g key={grp.id}>
-          <line x1={sx(grp.zPosM)} y1={sy(DECK_Y)} x2={sx(grp.zPosM)} y2={sy(g.topY)} stroke="transparent" strokeWidth={0.20}
+          <line x1={sx(grp.zPosM)} y1={sy(DECK_Y)} x2={sx(grp.zPosM)} y2={sy(g.topY)} stroke="transparent" strokeWidth={HIT}
             style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'towerZ', id: grp.id })} />
           <line x1={sx(grp.zPosM)} y1={sy(DECK_Y)} x2={sx(grp.zPosM)} y2={sy(g.topY)}
             stroke={COL.post} strokeWidth={Math.max(0.03, grp.postWidthM)} />
@@ -224,7 +228,8 @@ function SideView({ trailer }: { trailer: Trailer }) {
 
       {/* bed length + rear-edge handle */}
       <rect x={sx(-g.halfLen) - HANDLE / 2} y={sy(DECK_Y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
-        fill={COL.frame} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'bed' })} />
+        fill={COL.frame} stroke="transparent" strokeWidth={isMobile ? 0.7 : 0}
+        style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'bed' })} />
       <text x={(sx(g.halfLen) + sx(-g.halfLen)) / 2} y={sy(g.realFloor) + 0.30}
         textAnchor="middle" fontSize={fs} fill={COL.dim} style={{ cursor: 'text' }}
         onClick={(e) => open(e, trailer.bedLengthM, (n) => updateTrailer({ bedLengthM: Math.max(2, Math.min(20, n)) }))}>
@@ -252,6 +257,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<EndDrag | null>(null);
   const { ref, open, overlay } = useInlineEdit();
+  const isMobile = useIsMobile();
 
   const g = trailerGeom(trailer);
   const maxRail  = Math.max(trailer.trailerWidthM, ...trailer.tiers.map(t => t.railWidthM));
@@ -266,7 +272,8 @@ function EndView({ trailer }: { trailer: Trailer }) {
   const vbH = yTop - (g.realFloor - pad * 0.6);
   const stroke = 0.03;
   const fs = 0.20;
-  const HANDLE = 0.13;
+  const HANDLE = isMobile ? 0.26 : 0.13;
+  const HIT = isMobile ? 0.36 : 0.16;   // invisible hit-line width for rail/post drags
 
   // Unique post X positions across all groups (they overlap in an end view).
   const postXs = Array.from(new Set(trailer.towerGroups.flatMap(grp => grp.postXs))).sort((a, b) => a - b);
@@ -368,7 +375,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
         return (
           <g key={t}>
             {/* fat invisible hit-line for vertical drag */}
-            <line x1={ex(-hw)} y1={ey(y)} x2={ex(hw)} y2={ey(y)} stroke="transparent" strokeWidth={0.16}
+            <line x1={ex(-hw)} y1={ey(y)} x2={ex(hw)} y2={ey(y)} stroke="transparent" strokeWidth={HIT}
               style={{ cursor: 'ns-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tierH', i: t })} />
             <line x1={ex(-hw)} y1={ey(y)} x2={ex(hw)} y2={ey(y)} stroke={COL.tier} strokeWidth={stroke} />
             {/* width handle at right end */}
@@ -389,7 +396,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
       {/* tower posts (vertical at each unique X) — draggable laterally (uniform) */}
       {postXs.map((px, i) => (
         <g key={i}>
-          <line x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke="transparent" strokeWidth={0.18}
+          <line x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke="transparent" strokeWidth={HIT}
             style={{ cursor: postsPerTower > 1 ? 'ew-resize' : 'default' }}
             onPointerDown={(e) => postsPerTower > 1 && startDrag(e, { kind: 'postX' })} />
           <line x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke={COL.post} strokeWidth={postW} />
