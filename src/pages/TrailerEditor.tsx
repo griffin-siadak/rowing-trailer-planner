@@ -230,11 +230,10 @@ type EndDrag =
   | { kind: 'width' }
   | { kind: 'tierH'; i: number }
   | { kind: 'tierW'; i: number }
-  | { kind: 'track' }
   | { kind: 'postX' };
 
 function EndView({ trailer }: { trailer: Trailer }) {
-  const { updateTrailer, updateTier, updateAxle, updateTowerGroup } = useStore();
+  const { updateTrailer, updateTier, updateTowerGroup } = useStore();
   // Posts are edited uniformly: every tower group shares the same lateral layout.
   const postsPerTower = trailer.towerGroups[0]?.postXs.length ?? 1;
   const postOffset = postsPerTower > 1 ? Math.abs(trailer.towerGroups[0].postXs[1]) : 0;
@@ -245,8 +244,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
 
   const g = trailerGeom(trailer);
   const maxRail  = Math.max(trailer.trailerWidthM, ...trailer.tiers.map(t => t.railWidthM));
-  const maxTrack = Math.max(...trailer.axles.map(a => a.trackWidthM));
-  const halfSpan = Math.max(maxRail, maxTrack) / 2;
+  const halfSpan = maxRail / 2;
   const pad = 0.55;
 
   const ex = (x: number) => (halfSpan + pad) + x;       // x=0 at centre
@@ -277,9 +275,6 @@ function EndView({ trailer }: { trailer: Trailer }) {
     const { mx, my } = toMeters(e.clientX, e.clientY);
     if (drag.kind === 'width') {
       updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, Math.abs(mx) * 2)) });
-    } else if (drag.kind === 'track') {
-      const tw = Math.max(0.6, Math.min(4, Math.abs(mx) * 2));
-      trailer.axles.forEach(a => updateAxle(a.id, { trackWidthM: tw }));
     } else if (drag.kind === 'tierW') {
       updateTier(trailer.tiers[drag.i].id, { railWidthM: Math.max(0.3, Math.min(4, Math.abs(mx) * 2)) });
     } else if (drag.kind === 'tierH') {
@@ -316,10 +311,34 @@ function EndView({ trailer }: { trailer: Trailer }) {
       {/* centreline */}
       <line x1={ex(0)} y1={ey(g.topY) - 0.2} x2={ex(0)} y2={ey(g.realFloor)} stroke="#e2e8f0" strokeWidth={0.012} strokeDasharray="0.1 0.08" />
 
-      {/* chassis beams */}
-      {[-g.chHW, g.chHW].map((bx, i) => (
-        <rect key={i} x={ex(bx) - trailer.beamWidthM / 2} y={ey(DECK_Y)} width={trailer.beamWidthM} height={0.14} fill={COL.beam} />
-      ))}
+      {/* U-tray: floor + raised side walls, sitting on the two box-section chassis beams */}
+      {(() => {
+        const trayInnerHW = g.chHW + trailer.beamWidthM / 2;
+        const trayTop = g.tYs[trailer.tiers.length - 1] - 0.04;   // just under the bottom tier
+        const wallT = 0.07;
+        const floorT = 0.11;
+        const wallH = ey(DECK_Y) - ey(trayTop);
+        return (
+          <g>
+            {/* box-section chassis beams (structure below the tray) */}
+            {[-g.chHW, g.chHW].map((bx, i) => (
+              <rect key={i} x={ex(bx) - trailer.beamWidthM / 2} y={ey(DECK_Y) + floorT} width={trailer.beamWidthM} height={0.26}
+                fill={COL.frame} rx={0.015} />
+            ))}
+            {/* tray interior */}
+            <rect x={ex(-trayInnerHW)} y={ey(trayTop)} width={trayInnerHW * 2} height={wallH}
+              fill="#dde5ee" stroke="#94a3b8" strokeWidth={0.012} />
+            {/* raised side walls */}
+            {[-1, 1].map(s => (
+              <rect key={s} x={ex(s * trayInnerHW) - wallT / 2} y={ey(trayTop)} width={wallT} height={wallH + floorT}
+                fill={COL.frame} rx={0.02} />
+            ))}
+            {/* floor */}
+            <rect x={ex(-trayInnerHW) - wallT} y={ey(DECK_Y)} width={trayInnerHW * 2 + wallT * 2} height={floorT}
+              fill={COL.frame} rx={0.025} />
+          </g>
+        );
+      })()}
 
       {/* trailer width handles (at deck level, ± width/2) */}
       {[-1, 1].map(s => (
@@ -330,20 +349,6 @@ function EndView({ trailer }: { trailer: Trailer }) {
       <text x={ex(0)} y={ey(DECK_Y) - 0.16} textAnchor="middle" fontSize={fs * 0.8} fill={COL.frame} style={{ cursor: 'text' }}
         onClick={(e) => open(e, trailer.trailerWidthM, (n) => updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, n)) }))}>
         width {trailer.trailerWidthM.toFixed(2)} m
-      </text>
-
-      {/* wheels + track handle */}
-      {[-maxTrack / 2, maxTrack / 2].map((wx, i) => (
-        <circle key={i} cx={ex(wx)} cy={ey(g.axleCentY)} r={g.maxWheelR} fill={COL.wheel} />
-      ))}
-      {[-1, 1].map(s => (
-        <rect key={s} x={ex(s * maxTrack / 2) - HANDLE / 2} y={ey(g.axleCentY) - HANDLE / 2}
-          width={HANDLE} height={HANDLE} rx={0.03} fill="#3b82f6"
-          style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'track' })} />
-      ))}
-      <text x={ex(0)} y={ey(g.axleCentY) + 0.04} textAnchor="middle" fontSize={fs * 0.7} fill="white" style={{ cursor: 'text' }}
-        onClick={(e) => open(e, maxTrack, (n) => { const tw = Math.max(0.6, Math.min(4, n)); trailer.axles.forEach(a => updateAxle(a.id, { trackWidthM: tw })); })}>
-        track {maxTrack.toFixed(2)} m
       </text>
 
       {/* tier rails — draggable vertically (height) with end handle (width) */}
@@ -414,10 +419,13 @@ function Stepper({ label, count, min, max, onAdd, onRemove }: {
 
 export default function TrailerEditor() {
   const {
-    trailer, updateTrailer, updateTowerGroup,
+    trailer, updateTrailer, updateTowerGroup, updateAxle,
     addTier, removeTier, addTowerGroup, removeTowerGroup, addAxle, removeAxle, clearPlacements,
   } = useStore();
 
+  const wheelTrack = trailer.axles[0]?.trackWidthM ?? 2.89;
+  const setTrack = (w: number) =>
+    trailer.axles.forEach(a => updateAxle(a.id, { trackWidthM: Math.max(0.6, Math.min(4, w)) }));
   const postsPerTower = trailer.towerGroups[0]?.postXs.length ?? 1;
   const setPosts = (count: number) => {
     const off = trailer.trailerWidthM / 6;
@@ -433,7 +441,7 @@ export default function TrailerEditor() {
         Visual trailer editor — drag the handles in either view to reshape the trailer, or click any
         value to type an exact number; changes show live here and in the 3D view.
         <strong> Side profile:</strong> tongue, bed length, tower-group spacing, axle positions.
-        <strong> End cross-section:</strong> width, each tier's height &amp; rail width, wheel track.
+        <strong> End cross-section:</strong> tray, width, each tier's height &amp; rail width, posts.
       </div>
 
       <div style={card}>
@@ -489,6 +497,14 @@ export default function TrailerEditor() {
             <input type="number" step="0.01"
               value={trailer.towerGroups[0]?.postWidthM ?? 0.08}
               onChange={(e) => setPostWidth(Number(e.target.value))}
+              style={{ width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+            />
+          </label>
+          <label style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
+            Wheel track (m)
+            <input type="number" step="0.01"
+              value={wheelTrack}
+              onChange={(e) => setTrack(Number(e.target.value))}
               style={{ width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
             />
           </label>
