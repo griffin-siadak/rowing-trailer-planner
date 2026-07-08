@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useStore } from '../store';
 import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers } from '../utils';
 import { SHELL_DB } from '../shellDatabase';
+import { useIsMobile } from '../useIsMobile';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
 const BOAT_COLORS = [
@@ -215,6 +216,13 @@ const btnSecondary: React.CSSProperties = {
   padding: '8px 12px', background: 'white', color: '#1d4ed8',
   border: '1px solid #93c5fd', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer',
 };
+const mobileTab: React.CSSProperties = {
+  flex: 1, padding: '10px 12px', background: 'white', color: '#334155',
+  border: '1px solid #cbd5e1', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer',
+};
+const mobileTabActive: React.CSSProperties = {
+  ...mobileTab, background: '#dbeafe', color: '#1d4ed8', borderColor: '#1d4ed8',
+};
 
 export default function Layout() {
   const {
@@ -241,6 +249,8 @@ export default function Layout() {
   const [pendingBoatId, setPendingBoatId] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const isMobile = useIsMobile();
+  const [mobilePanel, setMobilePanel] = useState<'end' | 'boathouse' | null>(null);
 
   function printLayout() {
     const svg = svgRef.current;
@@ -383,7 +393,7 @@ export default function Layout() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       {/* Toolbar */}
-      <div style={{ padding: '10px 16px', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 8, flexShrink: 0 }}>
+      <div style={{ padding: '10px 16px', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
         <button onClick={autoLayout} style={btnPrimary}>✨ Auto-Arrange</button>
         <button onClick={addRandom} style={btnSecondary}>+ 10 Random</button>
         <button onClick={clearPlacements} style={{ ...btnSecondary, color: '#64748b', borderColor: '#cbd5e1' }}>Clear Layout</button>
@@ -402,13 +412,31 @@ export default function Layout() {
       )}
 
       {/* Main area: end views + SVG + Boathouse sidebar */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', flex: 1, overflow: 'hidden', position: 'relative' }}>
 
-      {/* Left sidebar: front & rear end views */}
-      <div style={{
+      {/* Backdrop for mobile drawers */}
+      {isMobile && mobilePanel && (
+        <div onClick={() => setMobilePanel(null)}
+          style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 10 }} />
+      )}
+
+      {/* End views: desktop = left sidebar; mobile = right slide-in drawer */}
+      <div style={isMobile ? {
+        position: 'absolute', top: 0, bottom: 0, right: 0, width: '88%', maxWidth: 420,
+        background: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 11,
+        boxShadow: '-4px 0 16px rgba(0,0,0,0.15)',
+        transform: mobilePanel === 'end' ? 'translateX(0)' : 'translateX(100%)',
+        transition: 'transform 0.22s ease',
+      } : {
         width: 360, flexShrink: 0, borderRight: '1px solid #e2e8f0', background: 'white',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
+        {isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>End views</span>
+            <button onClick={() => setMobilePanel(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer' }}>✕</button>
+          </div>
+        )}
         <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px' }}>
           <EndView
             label="Front Half"
@@ -592,15 +620,24 @@ export default function Layout() {
         </svg>
       </div>
 
-      {/* Boathouse sidebar */}
-      <div style={{
+      {/* Boathouse: desktop = right sidebar; mobile = bottom sheet */}
+      <div style={isMobile ? {
+        position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%',
+        background: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 11,
+        borderTopLeftRadius: 14, borderTopRightRadius: 14, boxShadow: '0 -4px 16px rgba(0,0,0,0.15)',
+        transform: mobilePanel === 'boathouse' ? 'translateY(0)' : 'translateY(100%)',
+        transition: 'transform 0.22s ease',
+      } : {
         width: 180, flexShrink: 0, borderLeft: '1px solid #e2e8f0', background: 'white',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
-        <div style={{ padding: '6px 10px 4px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px 4px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Boathouse ({unplacedBoats.length})
           </span>
+          {isMobile && (
+            <button onClick={() => setMobilePanel(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          )}
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {boats.length === 0 && (
@@ -624,7 +661,7 @@ export default function Layout() {
                   return (
                     <div
                       key={boat.id}
-                      onClick={() => setPendingBoatId(sel ? null : boat.id)}
+                      onClick={() => { setPendingBoatId(sel ? null : boat.id); setMobilePanel(null); }}
                       title={`${boat.name} — ${boat.lengthM}m`}
                       style={{
                         background: sel ? '#dbeafe' : color,
@@ -645,6 +682,16 @@ export default function Layout() {
           ))}
         </div>
       </div>
+
+      {/* Mobile toggle bar — open the end-views drawer or the boathouse sheet */}
+      {isMobile && (
+        <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderTop: '1px solid #e2e8f0', background: 'white', flexShrink: 0, zIndex: 1 }}>
+          <button onClick={() => setMobilePanel(mobilePanel === 'end' ? null : 'end')}
+            style={mobilePanel === 'end' ? mobileTabActive : mobileTab}>📐 End views</button>
+          <button onClick={() => setMobilePanel(mobilePanel === 'boathouse' ? null : 'boathouse')}
+            style={mobilePanel === 'boathouse' ? mobileTabActive : mobileTab}>🚣 Boathouse ({unplacedBoats.length})</button>
+        </div>
+      )}
 
       </div>{/* end main row */}
     </div>
