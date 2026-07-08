@@ -5,6 +5,12 @@ import type { Trailer } from '../types';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
 
+// The model stores metres; the editor UI shows/edits inches.
+const M_TO_IN = 39.3701;
+const toIn = (m: number) => m * M_TO_IN;                 // metres → inches
+const fromIn = (inch: number) => inch / M_TO_IN;         // inches → metres
+const inStr = (m: number) => `${toIn(m).toFixed(1)}"`;   // display string
+
 // Geometry constants mirrored from the 3D renderer so the editor matches it.
 const GROUND_Y   = -0.05;
 const BEAM_DEPTH = 0.22;
@@ -44,6 +50,10 @@ const panelTitle: React.CSSProperties = {
   fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
   letterSpacing: '0.5px', marginBottom: 6,
 };
+const inStyle: React.CSSProperties = {
+  width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #cbd5e1',
+  borderRadius: 8, fontSize: 14, boxSizing: 'border-box',
+};
 
 // Inline numeric editor: click an SVG readout to type an exact value. The input
 // is an HTML overlay positioned over the clicked <text> (crisp, unlike scaled
@@ -54,6 +64,7 @@ function useInlineEdit() {
     null | { left: number; top: number; draft: string; commit: (n: number) => void }
   >(null);
 
+  // `value`/`commit` are in metres (model units); the input shows inches.
   function open(e: React.MouseEvent, value: number, commit: (n: number) => void) {
     e.stopPropagation();
     const tb = (e.currentTarget as Element).getBoundingClientRect();
@@ -61,14 +72,14 @@ function useInlineEdit() {
     setEdit({
       left: tb.left - cb.left + tb.width / 2 - 36,
       top: tb.top - cb.top - 2,
-      draft: String(+value.toFixed(3)),
+      draft: String(+toIn(value).toFixed(1)),
       commit,
     });
   }
   function commitNow() {
     if (!edit) return;
     const n = parseFloat(edit.draft);
-    if (!isNaN(n)) edit.commit(n);
+    if (!isNaN(n)) edit.commit(fromIn(n));   // inches → metres
     setEdit(null);
   }
   const overlay = edit ? (
@@ -175,7 +186,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
       <text x={(sx(g.halfLen + trailer.tongueLengthM) + sx(g.halfLen)) / 2} y={sy(DECK_Y) + 0.07 - 0.12}
         textAnchor="middle" fontSize={fs * 0.85} fill={COL.label} style={{ cursor: 'text' }}
         onClick={(e) => open(e, trailer.tongueLengthM, (n) => updateTrailer({ tongueLengthM: Math.max(0.3, Math.min(6, n)) }))}>
-        tongue {trailer.tongueLengthM.toFixed(2)} m
+        tongue {inStr(trailer.tongueLengthM)}
       </text>
 
       {/* tier rails */}
@@ -184,7 +195,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
           <line x1={sx(g.frontZ)} y1={sy(y)} x2={sx(g.rearZ)} y2={sy(y)} stroke={COL.tier} strokeWidth={stroke} />
           <text x={sx(g.rearZ) + 0.12} y={sy(y) + 0.16} textAnchor="start" fontSize={fs * 0.8} fill={COL.label} style={{ cursor: 'text' }}
             onClick={(e) => open(e, trailer.tiers[t].heightM, (n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) }))}>
-            {TIER_NAMES[t] ?? `T${t + 1}`} · {trailer.tiers[t].heightM.toFixed(2)} m
+            {TIER_NAMES[t] ?? `T${t + 1}`} · {inStr(trailer.tiers[t].heightM)}
           </text>
         </g>
       ))}
@@ -198,7 +209,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
             stroke={COL.post} strokeWidth={Math.max(0.03, grp.postWidthM)} />
           <text x={sx(grp.zPosM)} y={sy(g.topY) - 0.10} textAnchor="middle" fontSize={fs * 0.8} fill={COL.post} style={{ cursor: 'text' }}
             onClick={(e) => open(e, grp.zPosM, (n) => updateTowerGroup(grp.id, { zPosM: Math.max(-g.halfLen - 1, Math.min(g.halfLen + 1, n)) }))}>
-            G{i + 1} · z{grp.zPosM >= 0 ? '+' : ''}{grp.zPosM.toFixed(2)}
+            G{i + 1} · z{grp.zPosM >= 0 ? '+' : ''}{toIn(grp.zPosM).toFixed(1)}"
           </text>
         </g>
       ))}
@@ -217,7 +228,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
       <text x={(sx(g.halfLen) + sx(-g.halfLen)) / 2} y={sy(g.realFloor) + 0.30}
         textAnchor="middle" fontSize={fs} fill={COL.dim} style={{ cursor: 'text' }}
         onClick={(e) => open(e, trailer.bedLengthM, (n) => updateTrailer({ bedLengthM: Math.max(2, Math.min(20, n)) }))}>
-        bed {trailer.bedLengthM.toFixed(2)} m
+        bed {inStr(trailer.bedLengthM)}
       </text>
     </svg>
     {overlay}
@@ -348,7 +359,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
       ))}
       <text x={ex(0)} y={ey(DECK_Y) - 0.16} textAnchor="middle" fontSize={fs * 0.8} fill={COL.frame} style={{ cursor: 'text' }}
         onClick={(e) => open(e, trailer.trailerWidthM, (n) => updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, n)) }))}>
-        width {trailer.trailerWidthM.toFixed(2)} m
+        width {inStr(trailer.trailerWidthM)}
       </text>
 
       {/* tier rails — draggable vertically (height) with end handle (width) */}
@@ -365,11 +376,11 @@ function EndView({ trailer }: { trailer: Trailer }) {
               fill={COL.tier} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tierW', i: t })} />
             <text x={ex(-hw) - 0.12} y={ey(y) - 0.05} textAnchor="end" fontSize={fs * 0.7} fill={COL.label} style={{ cursor: 'text' }}
               onClick={(e) => open(e, trailer.tiers[t].heightM, (n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) }))}>
-              {(TIER_NAMES[t] ?? `T${t + 1}`)}: h{trailer.tiers[t].heightM.toFixed(2)}
+              {(TIER_NAMES[t] ?? `T${t + 1}`)}: h{inStr(trailer.tiers[t].heightM)}
             </text>
             <text x={ex(-hw) - 0.12} y={ey(y) + 0.18} textAnchor="end" fontSize={fs * 0.7} fill={COL.label} style={{ cursor: 'text' }}
               onClick={(e) => open(e, trailer.tiers[t].railWidthM, (n) => updateTier(trailer.tiers[t].id, { railWidthM: Math.max(0.3, Math.min(4, n)) }))}>
-              w{trailer.tiers[t].railWidthM.toFixed(2)}
+              w{inStr(trailer.tiers[t].railWidthM)}
             </text>
           </g>
         );
@@ -390,7 +401,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
           const off = Math.max(0.05, Math.min(trailer.trailerWidthM / 2 - 0.05, n));
           setUniformPostXs([-off, off]);
         })}>
-        {postsPerTower > 1 ? `posts ±${postOffset.toFixed(2)} m` : 'single centre post'}
+        {postsPerTower > 1 ? `posts ±${inStr(postOffset)}` : 'single centre post'}
       </text>
     </svg>
     {overlay}
@@ -471,41 +482,41 @@ export default function TrailerEditor() {
       <div style={card}>
         <div style={panelTitle}>Overall</div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <label style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
+            Name
+            <input type="text" value={trailer.name}
+              onChange={(e) => updateTrailer({ name: e.target.value })}
+              style={inStyle} />
+          </label>
           {([
-            ['Name', 'name', 'text'],
-            ['Bed length (m)', 'bedLengthM', 'number'],
-            ['Width (m)', 'trailerWidthM', 'number'],
-            ['Tongue (m)', 'tongueLengthM', 'number'],
-            ['Beam width (m)', 'beamWidthM', 'number'],
-          ] as const).map(([label, key, type]) => (
+            ['Bed length (in)', 'bedLengthM'],
+            ['Width (in)', 'trailerWidthM'],
+            ['Tongue (in)', 'tongueLengthM'],
+            ['Beam width (in)', 'beamWidthM'],
+          ] as const).map(([label, key]) => (
             <label key={key} style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
               {label}
-              <input
-                type={type}
-                step={type === 'number' ? '0.01' : undefined}
-                value={trailer[key] as string | number}
-                onChange={(e) => updateTrailer({ [key]: type === 'number' ? Number(e.target.value) : e.target.value } as Partial<Trailer>)}
-                style={{
-                  width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #cbd5e1',
-                  borderRadius: 8, fontSize: 14, boxSizing: 'border-box',
-                }}
+              <input type="number" step="0.25"
+                value={toIn(trailer[key] as number).toFixed(1)}
+                onChange={(e) => updateTrailer({ [key]: fromIn(Number(e.target.value)) } as Partial<Trailer>)}
+                style={inStyle}
               />
             </label>
           ))}
           <label style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
-            Post width (m)
-            <input type="number" step="0.01"
-              value={trailer.towerGroups[0]?.postWidthM ?? 0.08}
-              onChange={(e) => setPostWidth(Number(e.target.value))}
-              style={{ width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+            Post width (in)
+            <input type="number" step="0.25"
+              value={toIn(trailer.towerGroups[0]?.postWidthM ?? 0.08).toFixed(1)}
+              onChange={(e) => setPostWidth(fromIn(Number(e.target.value)))}
+              style={inStyle}
             />
           </label>
           <label style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
-            Wheel track (m)
-            <input type="number" step="0.01"
-              value={wheelTrack}
-              onChange={(e) => setTrack(Number(e.target.value))}
-              style={{ width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+            Wheel track (in)
+            <input type="number" step="0.25"
+              value={toIn(wheelTrack).toFixed(1)}
+              onChange={(e) => setTrack(fromIn(Number(e.target.value)))}
+              style={inStyle}
             />
           </label>
         </div>

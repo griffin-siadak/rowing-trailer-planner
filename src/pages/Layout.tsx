@@ -272,7 +272,7 @@ export default function Layout() {
       </style>
     </head><body>
       <h1>${trailer.name}</h1>
-      <div class="meta">${trailer.bedLengthM}m bed · ${tierCount} tiers · ${placements.length} boats placed · Printed ${new Date().toLocaleDateString()}</div>
+      <div class="meta">${(trailer.bedLengthM * 39.3701).toFixed(1)}" bed · ${tierCount} tiers · ${placements.length} boats placed · Printed ${new Date().toLocaleDateString()}</div>
       <table>${tierSummaries}</table>
       ${svgHtml}
       <script>window.onload = () => { window.print(); }<\/script>
