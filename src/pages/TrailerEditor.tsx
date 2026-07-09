@@ -193,7 +193,7 @@ function SideView({ trailer }: { trailer: Trailer }) {
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
     <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
-      style={{ width: '100%', maxHeight: 340, display: 'block', margin: '0 auto', touchAction: 'none' }}
+      style={{ width: '100%', height: 300, display: 'block', margin: '0 auto', touchAction: 'none' }}
       onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
     >
       {/* ground */}
@@ -293,15 +293,23 @@ function EndView({ trailer }: { trailer: Trailer }) {
 
   const g = trailerGeom(trailer);
   const maxRail  = Math.max(trailer.trailerWidthM, ...trailer.tiers.map(t => t.railWidthM));
-  const halfSpan = maxRail / 2;
   const pad = 1.6;   // wide margins leave room for the tier input boxes
 
+  // Coordinate frame is frozen while dragging: resizing a tier/width changes the
+  // auto-fit viewBox, which would shift the pointer→metres mapping mid-drag and
+  // make the handle chase (overshoot) the cursor.
+  const liveC = { halfSpan: maxRail / 2, yTop: g.topY + pad, realFloor: g.realFloor };
+  const frozen = useRef(liveC);
+  if (!drag) frozen.current = liveC;
+  const C = drag ? frozen.current : liveC;
+  const halfSpan = C.halfSpan;
+  const yTop = C.yTop;
+
   const ex = (x: number) => (halfSpan + pad) + x;       // x=0 at centre
-  const yTop = g.topY + pad;
   const ey = (y: number) => yTop - y;
 
   const vbW = 2 * (halfSpan + pad);
-  const vbH = yTop - (g.realFloor - pad * 0.6);
+  const vbH = yTop - (C.realFloor - pad * 0.6);
   const stroke = 0.03;
   const fs = 0.20;
   const HANDLE = isMobile ? 0.26 : 0.15;
@@ -353,7 +361,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
     <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
-      style={{ width: '100%', maxHeight: 560, display: 'block', margin: '0 auto', touchAction: 'none' }}
+      style={{ width: '100%', height: 520, display: 'block', margin: '0 auto', touchAction: 'none' }}
       onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
     >
       {/* ground */}
