@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { tierYs } from '../utils';
 import type { Trailer } from '../types';
@@ -10,7 +10,6 @@ const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth']
 const M_TO_IN = 39.3701;
 const toIn = (m: number) => m * M_TO_IN;                 // metres → inches
 const fromIn = (inch: number) => inch / M_TO_IN;         // inches → metres
-const inStr = (m: number) => `${toIn(m).toFixed(1)}"`;   // display string
 
 // Geometry constants mirrored from the 3D renderer so the editor matches it.
 const GROUND_Y   = -0.05;
@@ -56,47 +55,67 @@ const inStyle: React.CSSProperties = {
   borderRadius: 8, fontSize: 14, boxSizing: 'border-box',
 };
 
-// Inline numeric editor: click an SVG readout to type an exact value. The input
-// is an HTML overlay positioned over the clicked <text> (crisp, unlike scaled
-// foreignObject). Each editable text passes its current value + a commit fn.
-function useInlineEdit() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [edit, setEdit] = useState<
-    null | { left: number; top: number; draft: string; commit: (n: number) => void }
-  >(null);
+// Maps SVG viewBox coordinates to CSS pixels inside the wrapper div, so HTML
+// inputs can be overlaid on the drawing. Tracks the rendered size (the SVG is
+// width-constrained or maxHeight-constrained, with xMidYMid letterboxing).
+function useFitScale(vbW: number, vbH: number) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setDims({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    setDims({ w: el.clientWidth, h: el.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+  const toPx = (x: number, y: number) => {
+    if (!dims || dims.w === 0) return null;
+    const s = Math.min(dims.w / vbW, dims.h / vbH);
+    return { left: (dims.w - vbW * s) / 2 + x * s, top: (dims.h - vbH * s) / 2 + y * s };
+  };
+  return { wrapRef, toPx };
+}
 
-  // `value`/`commit` are in metres (model units); the input shows inches.
-  function open(e: React.MouseEvent, value: number, commit: (n: number) => void) {
-    e.stopPropagation();
-    const tb = (e.currentTarget as Element).getBoundingClientRect();
-    const cb = ref.current!.getBoundingClientRect();
-    setEdit({
-      left: tb.left - cb.left + tb.width / 2 - 36,
-      top: tb.top - cb.top - 2,
-      draft: String(+toIn(value).toFixed(1)),
-      commit,
-    });
+// Persistent numeric input overlaid on the SVG, centred on a drawing point.
+// Fixed pixel size (crisp text, finger-friendly); shows/edits inches while the
+// model stays in metres.
+function NumBox({ at, valueM, commit }: {
+  at: { left: number; top: number } | null;
+  valueM: number; commit: (m: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  if (!at) return null;
+  function commitDraft() {
+    if (draft !== null) {
+      const n = parseFloat(draft);
+      if (!isNaN(n)) commit(fromIn(n));   // inches → metres
+    }
+    setDraft(null);
   }
-  function commitNow() {
-    if (!edit) return;
-    const n = parseFloat(edit.draft);
-    if (!isNaN(n)) edit.commit(fromIn(n));   // inches → metres
-    setEdit(null);
-  }
-  const overlay = edit ? (
+  return (
     <input
-      autoFocus type="number" value={edit.draft}
-      onChange={(e) => setEdit({ ...edit, draft: e.target.value })}
-      onBlur={commitNow}
-      onKeyDown={(e) => { if (e.key === 'Enter') commitNow(); if (e.key === 'Escape') setEdit(null); }}
+      type="text" inputMode="decimal"
+      value={draft ?? toIn(valueM).toFixed(1)}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => { setDraft(toIn(valueM).toFixed(1)); e.target.select(); }}
+      onBlur={commitDraft}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') setDraft(null);
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
       style={{
-        position: 'absolute', left: edit.left, top: edit.top, width: 72,
-        fontSize: 11, padding: '1px 4px', border: '1px solid #1d4ed8',
-        borderRadius: 4, zIndex: 5, boxSizing: 'border-box',
+        position: 'absolute', left: at.left, top: at.top,
+        transform: 'translate(-50%, -50%)',
+        width: 56, height: 20, boxSizing: 'border-box',
+        fontSize: 11, textAlign: 'center', color: '#334155',
+        border: '1px solid #cbd5e1', borderRadius: 4,
+        background: 'rgba(255,255,255,0.95)',
+        padding: 0, outline: 'none',
       }}
     />
-  ) : null;
-  return { ref, open, overlay };
+  );
 }
 
 // ─── Side profile: looking from the side (Z = length horizontal, Y = height) ──
@@ -110,7 +129,6 @@ function SideView({ trailer }: { trailer: Trailer }) {
   const { updateTrailer, updateTowerGroup, updateAxle, updateTier } = useStore();
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<SideDrag | null>(null);
-  const { ref, open, overlay } = useInlineEdit();
   const isMobile = useIsMobile();
 
   const g = trailerGeom(trailer);
@@ -125,8 +143,9 @@ function SideView({ trailer }: { trailer: Trailer }) {
 
   const sx = (z: number) => (C.frontMax + pad) - z;   // front (+Z, tongue) on the left
   const sy = (y: number) => C.yTop - y;
-  const vbW = C.frontMax + C.halfLen + 2 * pad;
+  const vbW = C.frontMax + C.halfLen + 2 * pad + 2.45;  // extra right room for tier boxes
   const vbH = C.yTop - (C.realFloor - pad * 0.6);
+  const { wrapRef, toPx } = useFitScale(vbW, vbH);
 
   const stroke = 0.03;
   const fs = 0.20;
@@ -168,8 +187,11 @@ function SideView({ trailer }: { trailer: Trailer }) {
     }
   }
 
+  const tongueMid = (sx(g.halfLen + trailer.tongueLengthM) + sx(g.halfLen)) / 2;
+  const bedMid    = (sx(g.halfLen) + sx(-g.halfLen)) / 2;
+
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={wrapRef} style={{ position: 'relative' }}>
     <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
       style={{ width: '100%', maxHeight: 340, display: 'block', margin: '0 auto', touchAction: 'none' }}
       onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
@@ -187,19 +209,16 @@ function SideView({ trailer }: { trailer: Trailer }) {
         width={HANDLE} height={HANDLE} rx={0.03} fill={COL.tongue}
         stroke="transparent" strokeWidth={isMobile ? 0.7 : 0}
         style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tongue' })} />
-      <text x={(sx(g.halfLen + trailer.tongueLengthM) + sx(g.halfLen)) / 2} y={sy(DECK_Y) + 0.07 - 0.12}
-        textAnchor="middle" fontSize={fs * 0.85} fill={COL.label} style={{ cursor: 'text' }}
-        onClick={(e) => open(e, trailer.tongueLengthM, (n) => updateTrailer({ tongueLengthM: Math.max(0.3, Math.min(6, n)) }))}>
-        tongue {inStr(trailer.tongueLengthM)}
+      <text x={tongueMid - 0.06} y={sy(DECK_Y) - 0.20} textAnchor="end" fontSize={fs * 0.85} fill={COL.label}>
+        tongue
       </text>
 
       {/* tier rails */}
       {g.tYs.map((y, t) => (
         <g key={t}>
           <line x1={sx(g.frontZ)} y1={sy(y)} x2={sx(g.rearZ)} y2={sy(y)} stroke={COL.tier} strokeWidth={stroke} />
-          <text x={sx(g.rearZ) + 0.12} y={sy(y) + 0.16} textAnchor="start" fontSize={fs * 0.8} fill={COL.label} style={{ cursor: 'text' }}
-            onClick={(e) => open(e, trailer.tiers[t].heightM, (n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) }))}>
-            {TIER_NAMES[t] ?? `T${t + 1}`} · {inStr(trailer.tiers[t].heightM)}
+          <text x={sx(g.rearZ) + 0.12} y={sy(y) + 0.16} textAnchor="start" fontSize={fs * 0.8} fill={COL.label}>
+            {TIER_NAMES[t] ?? `T${t + 1}`}
           </text>
         </g>
       ))}
@@ -211,9 +230,8 @@ function SideView({ trailer }: { trailer: Trailer }) {
             style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'towerZ', id: grp.id })} />
           <line x1={sx(grp.zPosM)} y1={sy(DECK_Y)} x2={sx(grp.zPosM)} y2={sy(g.topY)}
             stroke={COL.post} strokeWidth={Math.max(0.03, grp.postWidthM)} />
-          <text x={sx(grp.zPosM)} y={sy(g.topY) - 0.10} textAnchor="middle" fontSize={fs * 0.8} fill={COL.post} style={{ cursor: 'text' }}
-            onClick={(e) => open(e, grp.zPosM, (n) => updateTowerGroup(grp.id, { zPosM: Math.max(-g.halfLen - 1, Math.min(g.halfLen + 1, n)) }))}>
-            G{i + 1} · z{grp.zPosM >= 0 ? '+' : ''}{toIn(grp.zPosM).toFixed(1)}"
+          <text x={sx(grp.zPosM)} y={sy(g.topY) - 0.54} textAnchor="middle" fontSize={fs * 0.8} fill={COL.post}>
+            G{i + 1}
           </text>
         </g>
       ))}
@@ -230,13 +248,28 @@ function SideView({ trailer }: { trailer: Trailer }) {
       <rect x={sx(-g.halfLen) - HANDLE / 2} y={sy(DECK_Y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
         fill={COL.frame} stroke="transparent" strokeWidth={isMobile ? 0.7 : 0}
         style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'bed' })} />
-      <text x={(sx(g.halfLen) + sx(-g.halfLen)) / 2} y={sy(g.realFloor) + 0.30}
-        textAnchor="middle" fontSize={fs} fill={COL.dim} style={{ cursor: 'text' }}
-        onClick={(e) => open(e, trailer.bedLengthM, (n) => updateTrailer({ bedLengthM: Math.max(2, Math.min(20, n)) }))}>
-        bed {inStr(trailer.bedLengthM)}
+      <text x={bedMid - 0.06} y={sy(g.realFloor) + 0.27} textAnchor="end" fontSize={fs} fill={COL.dim}>
+        bed
       </text>
     </svg>
-    {overlay}
+
+    {/* HTML input overlays, positioned in drawing coordinates */}
+    <NumBox at={toPx(tongueMid + 0.75, sy(DECK_Y) - 0.27)}
+      valueM={trailer.tongueLengthM}
+      commit={(n) => updateTrailer({ tongueLengthM: Math.max(0.3, Math.min(6, n)) })} />
+    {g.tYs.map((y, t) => (
+      <NumBox key={trailer.tiers[t].id} at={toPx(sx(g.rearZ) + 1.7, sy(y) + 0.09)}
+        valueM={trailer.tiers[t].heightM}
+        commit={(n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) })} />
+    ))}
+    {trailer.towerGroups.map((grp) => (
+      <NumBox key={grp.id} at={toPx(sx(grp.zPosM), sy(g.topY) - 0.28)}
+        valueM={grp.zPosM}
+        commit={(n) => updateTowerGroup(grp.id, { zPosM: Math.max(-g.halfLen - 1, Math.min(g.halfLen + 1, n)) })} />
+    ))}
+    <NumBox at={toPx(bedMid + 0.72, sy(g.realFloor) + 0.19)}
+      valueM={trailer.bedLengthM}
+      commit={(n) => updateTrailer({ bedLengthM: Math.max(2, Math.min(20, n)) })} />
     </div>
   );
 }
@@ -256,13 +289,12 @@ function EndView({ trailer }: { trailer: Trailer }) {
   const setUniformPostXs = (xs: number[]) => trailer.towerGroups.forEach(grp => updateTowerGroup(grp.id, { postXs: xs }));
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<EndDrag | null>(null);
-  const { ref, open, overlay } = useInlineEdit();
   const isMobile = useIsMobile();
 
   const g = trailerGeom(trailer);
   const maxRail  = Math.max(trailer.trailerWidthM, ...trailer.tiers.map(t => t.railWidthM));
   const halfSpan = maxRail / 2;
-  const pad = 0.55;
+  const pad = 1.6;   // wide margins leave room for the tier input boxes
 
   const ex = (x: number) => (halfSpan + pad) + x;       // x=0 at centre
   const yTop = g.topY + pad;
@@ -274,6 +306,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
   const fs = 0.20;
   const HANDLE = isMobile ? 0.26 : 0.13;
   const HIT = isMobile ? 0.36 : 0.16;   // invisible hit-line width for rail/post drags
+  const { wrapRef, toPx } = useFitScale(vbW, vbH);
 
   // Unique post X positions across all groups (they overlap in an end view).
   const postXs = Array.from(new Set(trailer.towerGroups.flatMap(grp => grp.postXs))).sort((a, b) => a - b);
@@ -318,7 +351,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
   }
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={wrapRef} style={{ position: 'relative' }}>
     <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
       style={{ width: '100%', maxHeight: 360, display: 'block', margin: '0 auto', touchAction: 'none' }}
       onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
@@ -364,9 +397,8 @@ function EndView({ trailer }: { trailer: Trailer }) {
           width={HANDLE} height={HANDLE} rx={0.03} fill={COL.frame}
           style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'width' })} />
       ))}
-      <text x={ex(0)} y={ey(DECK_Y) - 0.16} textAnchor="middle" fontSize={fs * 0.8} fill={COL.frame} style={{ cursor: 'text' }}
-        onClick={(e) => open(e, trailer.trailerWidthM, (n) => updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, n)) }))}>
-        width {inStr(trailer.trailerWidthM)}
+      <text x={ex(0) - 0.05} y={ey(DECK_Y) - 0.27} textAnchor="end" fontSize={fs * 0.8} fill={COL.frame}>
+        width
       </text>
 
       {/* tier rails — draggable vertically (height) with end handle (width) */}
@@ -381,13 +413,11 @@ function EndView({ trailer }: { trailer: Trailer }) {
             {/* width handle at right end */}
             <rect x={ex(hw) - HANDLE / 2} y={ey(y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
               fill={COL.tier} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tierW', i: t })} />
-            <text x={ex(-hw) - 0.12} y={ey(y) - 0.05} textAnchor="end" fontSize={fs * 0.7} fill={COL.label} style={{ cursor: 'text' }}
-              onClick={(e) => open(e, trailer.tiers[t].heightM, (n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) }))}>
-              {(TIER_NAMES[t] ?? `T${t + 1}`)}: h{inStr(trailer.tiers[t].heightM)}
+            <text x={ex(-hw) - 0.86} y={ey(y) - 0.10} textAnchor="end" fontSize={fs * 0.7} fill={COL.label}>
+              {(TIER_NAMES[t] ?? `T${t + 1}`)} h
             </text>
-            <text x={ex(-hw) - 0.12} y={ey(y) + 0.18} textAnchor="end" fontSize={fs * 0.7} fill={COL.label} style={{ cursor: 'text' }}
-              onClick={(e) => open(e, trailer.tiers[t].railWidthM, (n) => updateTier(trailer.tiers[t].id, { railWidthM: Math.max(0.3, Math.min(4, n)) }))}>
-              w{inStr(trailer.tiers[t].railWidthM)}
+            <text x={ex(-hw) - 0.86} y={ey(y) + 0.20} textAnchor="end" fontSize={fs * 0.7} fill={COL.label}>
+              w
             </text>
           </g>
         );
@@ -402,16 +432,42 @@ function EndView({ trailer }: { trailer: Trailer }) {
           <line x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke={COL.post} strokeWidth={postW} />
         </g>
       ))}
-      <text x={ex(0)} y={ey(g.topY) - 0.10} textAnchor="middle" fontSize={fs * 0.72} fill={COL.post}
-        style={{ cursor: postsPerTower > 1 ? 'text' : 'default' }}
-        onClick={(e) => postsPerTower > 1 && open(e, postOffset, (n) => {
+      {postsPerTower > 1 ? (
+        <text x={ex(0) - 0.05} y={ey(g.topY) - 0.21} textAnchor="end" fontSize={fs * 0.72} fill={COL.post}>
+          posts ±
+        </text>
+      ) : (
+        <text x={ex(0)} y={ey(g.topY) - 0.16} textAnchor="middle" fontSize={fs * 0.72} fill={COL.post}>
+          single centre post
+        </text>
+      )}
+    </svg>
+
+    {/* HTML input overlays, positioned in drawing coordinates */}
+    <NumBox at={toPx(ex(0) + 0.42, ey(DECK_Y) - 0.32)}
+      valueM={trailer.trailerWidthM}
+      commit={(n) => updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, n)) })} />
+    {g.tYs.map((y, t) => {
+      const hw = trailer.tiers[t].railWidthM / 2;
+      return (
+        <React.Fragment key={trailer.tiers[t].id}>
+          <NumBox at={toPx(ex(-hw) - 0.44, ey(y) - 0.14)}
+            valueM={trailer.tiers[t].heightM}
+            commit={(n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) })} />
+          <NumBox at={toPx(ex(-hw) - 0.44, ey(y) + 0.16)}
+            valueM={trailer.tiers[t].railWidthM}
+            commit={(n) => updateTier(trailer.tiers[t].id, { railWidthM: Math.max(0.3, Math.min(4, n)) })} />
+        </React.Fragment>
+      );
+    })}
+    {postsPerTower > 1 && (
+      <NumBox at={toPx(ex(0) + 0.42, ey(g.topY) - 0.26)}
+        valueM={postOffset}
+        commit={(n) => {
           const off = Math.max(0.05, Math.min(trailer.trailerWidthM / 2 - 0.05, n));
           setUniformPostXs([-off, off]);
-        })}>
-        {postsPerTower > 1 ? `posts ±${inStr(postOffset)}` : 'single centre post'}
-      </text>
-    </svg>
-    {overlay}
+        }} />
+    )}
     </div>
   );
 }
