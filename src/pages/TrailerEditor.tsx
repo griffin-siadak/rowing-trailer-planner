@@ -304,8 +304,8 @@ function EndView({ trailer }: { trailer: Trailer }) {
   const vbH = yTop - (g.realFloor - pad * 0.6);
   const stroke = 0.03;
   const fs = 0.20;
-  const HANDLE = isMobile ? 0.26 : 0.13;
-  const HIT = isMobile ? 0.36 : 0.16;   // invisible hit-line width for rail/post drags
+  const HANDLE = isMobile ? 0.26 : 0.15;
+  const HIT = isMobile ? 0.36 : 0.18;   // invisible hit-line width for rail/post drags
   const { wrapRef, toPx } = useFitScale(vbW, vbH);
 
   // Unique post X positions across all groups (they overlap in an end view).
@@ -353,7 +353,7 @@ function EndView({ trailer }: { trailer: Trailer }) {
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
     <svg ref={svgRef} viewBox={`0 0 ${vbW} ${vbH}`}
-      style={{ width: '100%', maxHeight: 360, display: 'block', margin: '0 auto', touchAction: 'none' }}
+      style={{ width: '100%', maxHeight: 560, display: 'block', margin: '0 auto', touchAction: 'none' }}
       onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}
     >
       {/* ground */}
