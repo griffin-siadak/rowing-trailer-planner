@@ -6,10 +6,12 @@ import { useIsMobile } from '../useIsMobile';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
 
-// The model stores metres; the editor UI shows/edits inches.
-const M_TO_IN = 39.3701;
-const toIn = (m: number) => m * M_TO_IN;                 // metres → inches
-const fromIn = (inch: number) => inch / M_TO_IN;         // inches → metres
+// The model stores metres; the editor UI shows/edits inches or millimetres.
+export type Unit = 'in' | 'mm';
+const UNIT_PER_M: Record<Unit, number> = { in: 39.3701, mm: 1000 };
+const toUnit   = (m: number, u: Unit) => m * UNIT_PER_M[u];
+const fromUnit = (v: number, u: Unit) => v / UNIT_PER_M[u];
+const fmtUnit  = (m: number, u: Unit) => toUnit(m, u).toFixed(u === 'in' ? 1 : 0);
 
 // Geometry constants mirrored from the 3D renderer so the editor matches it.
 const GROUND_Y   = -0.05;
@@ -77,44 +79,55 @@ function useFitScale(vbW: number, vbH: number) {
   return { wrapRef, toPx };
 }
 
-// Persistent numeric input overlaid on the SVG, centred on a drawing point.
-// Fixed pixel size (crisp text, finger-friendly); shows/edits inches while the
-// model stays in metres.
-function NumBox({ at, valueM, commit }: {
+// Persistent numeric input overlaid on the SVG, centred on a drawing point,
+// with the active unit shown as a suffix. Fixed pixel size (crisp text,
+// finger-friendly); shows/edits in `unit` while the model stays in metres.
+function NumBox({ at, valueM, unit, commit }: {
   at: { left: number; top: number } | null;
-  valueM: number; commit: (m: number) => void;
+  valueM: number; unit: Unit; commit: (m: number) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   if (!at) return null;
   function commitDraft() {
     if (draft !== null) {
       const n = parseFloat(draft);
-      if (!isNaN(n)) commit(fromIn(n));   // inches → metres
+      if (!isNaN(n)) commit(fromUnit(n, unit));
     }
     setDraft(null);
   }
   return (
-    <input
-      type="text" inputMode="decimal"
-      value={draft ?? toIn(valueM).toFixed(1)}
-      onChange={(e) => setDraft(e.target.value)}
-      onFocus={(e) => { setDraft(toIn(valueM).toFixed(1)); e.target.select(); }}
-      onBlur={commitDraft}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        if (e.key === 'Escape') setDraft(null);
-      }}
+    <div
       onPointerDown={(e) => e.stopPropagation()}
       style={{
         position: 'absolute', left: at.left, top: at.top,
         transform: 'translate(-50%, -50%)',
-        width: 56, height: 20, boxSizing: 'border-box',
-        fontSize: 11, textAlign: 'center', color: '#334155',
+        width: 66, height: 20, boxSizing: 'border-box',
+        display: 'flex', alignItems: 'center',
         border: '1px solid #cbd5e1', borderRadius: 4,
-        background: 'rgba(255,255,255,0.95)',
-        padding: 0, outline: 'none',
+        background: 'rgba(255,255,255,0.95)', paddingRight: 4,
       }}
-    />
+    >
+      <input
+        type="text" inputMode="decimal"
+        value={draft ?? fmtUnit(valueM, unit)}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={(e) => { setDraft(fmtUnit(valueM, unit)); e.target.select(); }}
+        onBlur={commitDraft}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          if (e.key === 'Escape') setDraft(null);
+        }}
+        style={{
+          flex: 1, minWidth: 0, height: '100%', boxSizing: 'border-box',
+          fontSize: 11, textAlign: 'right', color: '#334155',
+          border: 'none', background: 'transparent',
+          padding: 0, outline: 'none',
+        }}
+      />
+      <span style={{ fontSize: 9, color: '#94a3b8', marginLeft: 2, userSelect: 'none' }}>
+        {unit}
+      </span>
+    </div>
   );
 }
 
@@ -125,7 +138,7 @@ type SideDrag =
   | { kind: 'towerZ'; id: string }
   | { kind: 'axleZ'; id: string };
 
-function SideView({ trailer }: { trailer: Trailer }) {
+function SideView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
   const { updateTrailer, updateTowerGroup, updateAxle, updateTier } = useStore();
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<SideDrag | null>(null);
@@ -254,20 +267,20 @@ function SideView({ trailer }: { trailer: Trailer }) {
     </svg>
 
     {/* HTML input overlays, positioned in drawing coordinates */}
-    <NumBox at={toPx(tongueMid + 0.75, sy(DECK_Y) - 0.27)}
+    <NumBox unit={unit} at={toPx(tongueMid + 0.75, sy(DECK_Y) - 0.27)}
       valueM={trailer.tongueLengthM}
       commit={(n) => updateTrailer({ tongueLengthM: Math.max(0.3, Math.min(6, n)) })} />
     {g.tYs.map((y, t) => (
-      <NumBox key={trailer.tiers[t].id} at={toPx(sx(g.rearZ) + 1.7, sy(y) + 0.09)}
+      <NumBox key={trailer.tiers[t].id} unit={unit} at={toPx(sx(g.rearZ) + 1.7, sy(y) + 0.09)}
         valueM={trailer.tiers[t].heightM}
         commit={(n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) })} />
     ))}
     {trailer.towerGroups.map((grp) => (
-      <NumBox key={grp.id} at={toPx(sx(grp.zPosM), sy(g.topY) - 0.28)}
+      <NumBox key={grp.id} unit={unit} at={toPx(sx(grp.zPosM), sy(g.topY) - 0.28)}
         valueM={grp.zPosM}
         commit={(n) => updateTowerGroup(grp.id, { zPosM: Math.max(-g.halfLen - 1, Math.min(g.halfLen + 1, n)) })} />
     ))}
-    <NumBox at={toPx(bedMid + 0.72, sy(g.realFloor) + 0.19)}
+    <NumBox unit={unit} at={toPx(bedMid + 0.72, sy(g.realFloor) + 0.19)}
       valueM={trailer.bedLengthM}
       commit={(n) => updateTrailer({ bedLengthM: Math.max(2, Math.min(20, n)) })} />
     </div>
@@ -281,7 +294,7 @@ type EndDrag =
   | { kind: 'tierW'; i: number }
   | { kind: 'postX' };
 
-function EndView({ trailer }: { trailer: Trailer }) {
+function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
   const { updateTrailer, updateTier, updateTowerGroup } = useStore();
   // Posts are edited uniformly: every tower group shares the same lateral layout.
   const postsPerTower = trailer.towerGroups[0]?.postXs.length ?? 1;
@@ -456,23 +469,23 @@ function EndView({ trailer }: { trailer: Trailer }) {
     </svg>
 
     {/* HTML input overlays, positioned in drawing coordinates */}
-    <NumBox at={toPx(ex(0) + 0.42, ey(DECK_Y) - 0.32)}
+    <NumBox unit={unit} at={toPx(ex(0) + 0.42, ey(DECK_Y) - 0.32)}
       valueM={trailer.trailerWidthM}
       commit={(n) => updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, n)) })} />
     {g.tYs.map((y, t) => {
       const hw = trailer.tiers[t].railWidthM / 2;
       return (
         <React.Fragment key={trailer.tiers[t].id}>
-          <NumBox at={toPx(ex(-hw) - 0.44, ey(y) - 0.14)}
+          <NumBox unit={unit} at={toPx(ex(-hw) - 0.44, ey(y) - 0.14)}
             valueM={trailer.tiers[t].heightM}
             commit={(n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) })} />
-          <NumBox at={toPx(ex(-hw) - 0.44, ey(y) + 0.16)}
+          <NumBox unit={unit} at={toPx(ex(-hw) - 0.44, ey(y) + 0.16)}
             valueM={trailer.tiers[t].railWidthM}
             commit={(n) => updateTier(trailer.tiers[t].id, { railWidthM: Math.max(0.3, Math.min(4, n)) })} />
         </React.Fragment>
       );
     })}
-    <NumBox at={toPx(ex(0) + 0.42, ey(g.topY) - 0.26)}
+    <NumBox unit={unit} at={toPx(ex(0) + 0.42, ey(g.topY) - 0.26)}
       valueM={postOffset}
       commit={(n) => {
         const lim = trailer.trailerWidthM / 2 - 0.05;
@@ -524,6 +537,11 @@ export default function TrailerEditor() {
   const setPostWidth = (w: number) =>
     trailer.towerGroups.forEach(g => updateTowerGroup(g.id, { postWidthM: Math.max(0.02, Math.min(0.3, w)) }));
 
+  // Display unit for all measurements (model stays metric internally).
+  const [unit, setUnitState] = useState<Unit>(() =>
+    (localStorage.getItem('rtp-units') === 'mm' ? 'mm' : 'in'));
+  const setUnit = (u: Unit) => { setUnitState(u); localStorage.setItem('rtp-units', u); };
+
   return (
     <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
       <div style={{ ...card, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: 13, color: '#1d4ed8' }}>
@@ -534,7 +552,22 @@ export default function TrailerEditor() {
       </div>
 
       <div style={card}>
-        <div style={panelTitle}>Structure</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={panelTitle}>Structure</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Units</span>
+            {(['in', 'mm'] as const).map(u => (
+              <button key={u} onClick={() => setUnit(u)}
+                style={{
+                  padding: '3px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: unit === u ? '2px solid #1d4ed8' : '1px solid #cbd5e1',
+                  background: unit === u ? '#dbeafe' : 'white',
+                  color: unit === u ? '#1d4ed8' : '#64748b',
+                }}
+              >{u}</button>
+            ))}
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Stepper label="Tiers" count={trailer.tiers.length} min={1}
             onAdd={addTier} onRemove={() => { removeTier(trailer.tiers[trailer.tiers.length - 1].id); clearPlacements(); }} />
@@ -549,12 +582,12 @@ export default function TrailerEditor() {
 
       <div style={card}>
         <div style={panelTitle}>Side profile</div>
-        <SideView trailer={trailer} />
+        <SideView trailer={trailer} unit={unit} />
       </div>
 
       <div style={card}>
         <div style={panelTitle}>End cross-section</div>
-        <EndView trailer={trailer} />
+        <EndView trailer={trailer} unit={unit} />
       </div>
 
       <div style={card}>
@@ -567,33 +600,33 @@ export default function TrailerEditor() {
               style={inStyle} />
           </label>
           {([
-            ['Bed length (in)', 'bedLengthM'],
-            ['Width (in)', 'trailerWidthM'],
-            ['Tongue (in)', 'tongueLengthM'],
-            ['Beam width (in)', 'beamWidthM'],
+            ['Bed length', 'bedLengthM'],
+            ['Width', 'trailerWidthM'],
+            ['Tongue', 'tongueLengthM'],
+            ['Beam width', 'beamWidthM'],
           ] as const).map(([label, key]) => (
             <label key={key} style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
-              {label}
-              <input type="number" step="0.25"
-                value={toIn(trailer[key] as number).toFixed(1)}
-                onChange={(e) => updateTrailer({ [key]: fromIn(Number(e.target.value)) } as Partial<Trailer>)}
+              {label} ({unit})
+              <input type="number" step={unit === 'in' ? '0.25' : '1'}
+                value={fmtUnit(trailer[key] as number, unit)}
+                onChange={(e) => updateTrailer({ [key]: fromUnit(Number(e.target.value), unit) } as Partial<Trailer>)}
                 style={inStyle}
               />
             </label>
           ))}
           <label style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
-            Post width (in)
-            <input type="number" step="0.25"
-              value={toIn(trailer.towerGroups[0]?.postWidthM ?? 0.08).toFixed(1)}
-              onChange={(e) => setPostWidth(fromIn(Number(e.target.value)))}
+            Post width ({unit})
+            <input type="number" step={unit === 'in' ? '0.25' : '1'}
+              value={fmtUnit(trailer.towerGroups[0]?.postWidthM ?? 0.08, unit)}
+              onChange={(e) => setPostWidth(fromUnit(Number(e.target.value), unit))}
               style={inStyle}
             />
           </label>
           <label style={{ flex: '1 1 140px', fontSize: 12, fontWeight: 600, color: '#475569' }}>
-            Wheel track (in)
-            <input type="number" step="0.25"
-              value={toIn(wheelTrack).toFixed(1)}
-              onChange={(e) => setTrack(fromIn(Number(e.target.value)))}
+            Wheel track ({unit})
+            <input type="number" step={unit === 'in' ? '0.25' : '1'}
+              value={fmtUnit(wheelTrack, unit)}
+              onChange={(e) => setTrack(fromUnit(Number(e.target.value), unit))}
               style={inStyle}
             />
           </label>
