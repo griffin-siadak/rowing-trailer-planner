@@ -285,7 +285,10 @@ function EndView({ trailer }: { trailer: Trailer }) {
   const { updateTrailer, updateTier, updateTowerGroup } = useStore();
   // Posts are edited uniformly: every tower group shares the same lateral layout.
   const postsPerTower = trailer.towerGroups[0]?.postXs.length ?? 1;
-  const postOffset = postsPerTower > 1 ? Math.abs(trailer.towerGroups[0].postXs[1]) : 0;
+  // Two posts: symmetric ± offset. Single post: signed lateral position.
+  const postOffset = postsPerTower > 1
+    ? Math.abs(trailer.towerGroups[0].postXs[1])
+    : (trailer.towerGroups[0]?.postXs[0] ?? 0);
   const setUniformPostXs = (xs: number[]) => trailer.towerGroups.forEach(grp => updateTowerGroup(grp.id, { postXs: xs }));
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<EndDrag | null>(null);
@@ -340,9 +343,16 @@ function EndView({ trailer }: { trailer: Trailer }) {
       // Drag tier i vertically → adjust its band height (distance to the tier below).
       const belowY = g.tYs[drag.i + 1] ?? 0;   // bottom tier measures from the deck datum (0)
       updateTier(trailer.tiers[drag.i].id, { heightM: Math.max(0.15, Math.min(1.5, my - belowY)) });
-    } else if (drag.kind === 'postX' && postsPerTower > 1) {
-      const off = Math.max(0.05, Math.min(trailer.trailerWidthM / 2 - 0.05, Math.abs(mx)));
-      setUniformPostXs([-off, off]);
+    } else if (drag.kind === 'postX') {
+      const lim = trailer.trailerWidthM / 2 - 0.05;
+      if (postsPerTower > 1) {
+        // Two posts stay symmetric about the centreline
+        const off = Math.max(0.05, Math.min(lim, Math.abs(mx)));
+        setUniformPostXs([-off, off]);
+      } else {
+        // A single post slides anywhere across the trailer width (signed offset)
+        setUniformPostXs([Math.max(-lim, Math.min(lim, mx))]);
+      }
     }
   }
 
@@ -435,20 +445,14 @@ function EndView({ trailer }: { trailer: Trailer }) {
       {postXs.map((px, i) => (
         <g key={i}>
           <line x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke="transparent" strokeWidth={HIT}
-            style={{ cursor: postsPerTower > 1 ? 'ew-resize' : 'default' }}
-            onPointerDown={(e) => postsPerTower > 1 && startDrag(e, { kind: 'postX' })} />
+            style={{ cursor: 'ew-resize' }}
+            onPointerDown={(e) => startDrag(e, { kind: 'postX' })} />
           <line x1={ex(px)} y1={ey(DECK_Y)} x2={ex(px)} y2={ey(g.topY)} stroke={COL.post} strokeWidth={postW} />
         </g>
       ))}
-      {postsPerTower > 1 ? (
-        <text x={ex(0) - 0.05} y={ey(g.topY) - 0.21} textAnchor="end" fontSize={fs * 0.72} fill={COL.post}>
-          posts ±
-        </text>
-      ) : (
-        <text x={ex(0)} y={ey(g.topY) - 0.16} textAnchor="middle" fontSize={fs * 0.72} fill={COL.post}>
-          single centre post
-        </text>
-      )}
+      <text x={ex(0) - 0.05} y={ey(g.topY) - 0.21} textAnchor="end" fontSize={fs * 0.72} fill={COL.post}>
+        {postsPerTower > 1 ? 'posts ±' : 'post x'}
+      </text>
     </svg>
 
     {/* HTML input overlays, positioned in drawing coordinates */}
@@ -468,14 +472,17 @@ function EndView({ trailer }: { trailer: Trailer }) {
         </React.Fragment>
       );
     })}
-    {postsPerTower > 1 && (
-      <NumBox at={toPx(ex(0) + 0.42, ey(g.topY) - 0.26)}
-        valueM={postOffset}
-        commit={(n) => {
-          const off = Math.max(0.05, Math.min(trailer.trailerWidthM / 2 - 0.05, n));
+    <NumBox at={toPx(ex(0) + 0.42, ey(g.topY) - 0.26)}
+      valueM={postOffset}
+      commit={(n) => {
+        const lim = trailer.trailerWidthM / 2 - 0.05;
+        if (postsPerTower > 1) {
+          const off = Math.max(0.05, Math.min(lim, n));
           setUniformPostXs([-off, off]);
-        }} />
-    )}
+        } else {
+          setUniformPostXs([Math.max(-lim, Math.min(lim, n))]);
+        }
+      }} />
     </div>
   );
 }
