@@ -276,9 +276,10 @@ function SideView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
         commit={(n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) })} />
     ))}
     {trailer.towerGroups.map((grp) => (
+      // Tower position shown as distance rearward from the bed's front edge (datum).
       <NumBox key={grp.id} unit={unit} at={toPx(sx(grp.zPosM), sy(g.topY) - 0.28)}
-        valueM={grp.zPosM}
-        commit={(n) => updateTowerGroup(grp.id, { zPosM: Math.max(-g.halfLen - 1, Math.min(g.halfLen + 1, n)) })} />
+        valueM={g.halfLen - grp.zPosM}
+        commit={(d) => updateTowerGroup(grp.id, { zPosM: Math.max(-g.halfLen - 1, Math.min(g.halfLen + 1, g.halfLen - d)) })} />
     ))}
     <NumBox unit={unit} at={toPx(bedMid + 0.72, sy(g.realFloor) + 0.19)}
       valueM={trailer.bedLengthM}
@@ -464,7 +465,7 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
         </g>
       ))}
       <text x={ex(0) - 0.05} y={ey(g.topY) - 0.21} textAnchor="end" fontSize={fs * 0.72} fill={COL.post}>
-        {postsPerTower > 1 ? 'posts ±' : 'post x'}
+        {postsPerTower > 1 ? 'posts ±' : 'post ▸L'}
       </text>
     </svg>
 
@@ -486,14 +487,17 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
       );
     })}
     <NumBox unit={unit} at={toPx(ex(0) + 0.42, ey(g.topY) - 0.26)}
-      valueM={postOffset}
-      commit={(n) => {
-        const lim = trailer.trailerWidthM / 2 - 0.05;
+      // Pair: symmetric ± offset. Single: distance from the driver's (left) edge.
+      valueM={postsPerTower > 1 ? postOffset : postOffset + trailer.trailerWidthM / 2}
+      commit={(v) => {
+        const halfW = trailer.trailerWidthM / 2;
+        const lim = halfW - 0.05;
         if (postsPerTower > 1) {
-          const off = Math.max(0.05, Math.min(lim, n));
+          const off = Math.max(0.05, Math.min(lim, v));
           setUniformPostXs([-off, off]);
         } else {
-          setUniformPostXs([Math.max(-lim, Math.min(lim, n))]);
+          const x = v - halfW;   // v is distance from the left edge
+          setUniformPostXs([Math.max(-lim, Math.min(lim, x))]);
         }
       }} />
     </div>
@@ -546,9 +550,9 @@ export default function TrailerEditor() {
     <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
       <div style={{ ...card, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: 13, color: '#1d4ed8' }}>
         Visual trailer editor — drag the handles in either view to reshape the trailer, or click any
-        value to type an exact number; changes show live here and in the 3D view.
-        <strong> Side profile:</strong> tongue, bed length, tower-group spacing, axle positions.
-        <strong> End cross-section:</strong> tray, width, each tier's height &amp; rail width, posts.
+        value to type an exact number; changes show live here and in the 3D view. Positions are
+        measured from the <strong>driver-side front corner of the bed</strong>: tower/axle distance
+        is rearward from the front edge, and a single post's position is from the driver's-side edge.
       </div>
 
       <div style={card}>
