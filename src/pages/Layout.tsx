@@ -2,7 +2,6 @@ import { useState, useRef } from 'react';
 import { useStore } from '../store';
 import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers } from '../utils';
 import { SHELL_DB } from '../shellDatabase';
-import { useIsMobile } from '../useIsMobile';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
 const BOAT_COLORS = [
@@ -249,7 +248,6 @@ export default function Layout() {
   const [pendingBoatId, setPendingBoatId] = useState<string | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const isMobile = useIsMobile();
   const [mobilePanel, setMobilePanel] = useState<'end' | 'boathouse' | null>(null);
 
   function printLayout() {
@@ -411,32 +409,27 @@ export default function Layout() {
         </div>
       )}
 
-      {/* Main area: end views + SVG + Boathouse sidebar */}
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', flex: 1, overflow: 'hidden', position: 'relative' }}>
+      {/* Main area: full-width overhead with pull-out drawers (all platforms) */}
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', position: 'relative' }}>
 
-      {/* Backdrop for mobile drawers */}
-      {isMobile && mobilePanel && (
+      {/* Backdrop dims the overhead while a drawer is open */}
+      {mobilePanel && (
         <div onClick={() => setMobilePanel(null)}
           style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 10 }} />
       )}
 
-      {/* End views: desktop = left sidebar; mobile = right slide-in drawer */}
-      <div style={isMobile ? {
+      {/* End views — right slide-in drawer */}
+      <div style={{
         position: 'absolute', top: 0, bottom: 0, right: 0, width: '88%', maxWidth: 420,
         background: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 11,
         boxShadow: '-4px 0 16px rgba(0,0,0,0.15)',
         transform: mobilePanel === 'end' ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.22s ease',
-      } : {
-        width: 360, flexShrink: 0, borderRight: '1px solid #e2e8f0', background: 'white',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
-        {isMobile && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
-            <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>End views</span>
-            <button onClick={() => setMobilePanel(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer' }}>✕</button>
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid #e2e8f0', flexShrink: 0 }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>End views</span>
+          <button onClick={() => setMobilePanel(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer' }}>✕</button>
+        </div>
         <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 12px' }}>
           <EndView
             label="Front Half"
@@ -620,24 +613,19 @@ export default function Layout() {
         </svg>
       </div>
 
-      {/* Boathouse: desktop = right sidebar; mobile = bottom sheet */}
-      <div style={isMobile ? {
+      {/* Boathouse — bottom-sheet drawer */}
+      <div style={{
         position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%',
         background: 'white', display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 11,
         borderTopLeftRadius: 14, borderTopRightRadius: 14, boxShadow: '0 -4px 16px rgba(0,0,0,0.15)',
         transform: mobilePanel === 'boathouse' ? 'translateY(0)' : 'translateY(100%)',
         transition: 'transform 0.22s ease',
-      } : {
-        width: 180, flexShrink: 0, borderLeft: '1px solid #e2e8f0', background: 'white',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px 4px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Boathouse ({unplacedBoats.length})
           </span>
-          {isMobile && (
-            <button onClick={() => setMobilePanel(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer', lineHeight: 1 }}>✕</button>
-          )}
+          <button onClick={() => setMobilePanel(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer', lineHeight: 1 }}>✕</button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {boats.length === 0 && (
@@ -683,15 +671,13 @@ export default function Layout() {
         </div>
       </div>
 
-      {/* Mobile toggle bar — open the end-views drawer or the boathouse sheet */}
-      {isMobile && (
-        <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderTop: '1px solid #e2e8f0', background: 'white', flexShrink: 0, zIndex: 1 }}>
-          <button onClick={() => setMobilePanel(mobilePanel === 'end' ? null : 'end')}
-            style={mobilePanel === 'end' ? mobileTabActive : mobileTab}>📐 End views</button>
-          <button onClick={() => setMobilePanel(mobilePanel === 'boathouse' ? null : 'boathouse')}
-            style={mobilePanel === 'boathouse' ? mobileTabActive : mobileTab}>🚣 Boathouse ({unplacedBoats.length})</button>
-        </div>
-      )}
+      {/* Toggle bar — open the end-views drawer or the boathouse sheet */}
+      <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderTop: '1px solid #e2e8f0', background: 'white', flexShrink: 0, zIndex: 1 }}>
+        <button onClick={() => setMobilePanel(mobilePanel === 'end' ? null : 'end')}
+          style={mobilePanel === 'end' ? mobileTabActive : mobileTab}>📐 End views</button>
+        <button onClick={() => setMobilePanel(mobilePanel === 'boathouse' ? null : 'boathouse')}
+          style={mobilePanel === 'boathouse' ? mobileTabActive : mobileTab}>🚣 Boathouse ({unplacedBoats.length})</button>
+      </div>
 
       </div>{/* end main row */}
     </div>
