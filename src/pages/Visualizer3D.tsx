@@ -540,8 +540,8 @@ function TrailerFrame({ trailer }: { trailer: Trailer }) {
   }
 
   // Tray: floor + four raised walls, open top.
-  // Top edge sits just under the bottom rack tier.
-  const trayWallTop  = tYs[nTiers - 1] - 0.04;      // just under bottom tier
+  // Independent tray height, capped just under the bottom rack tier.
+  const trayWallTop  = Math.min(deckY + (trailer.trayHeightM ?? 0.34), tYs[nTiers - 1] - 0.02);
   const trayWallH    = trayWallTop - deckY;          // wall height
   const trayWallCY   = deckY + trayWallH / 2;        // wall centre Y
   const trayInnerHW  = chHW + beamW / 2;             // inner half-width of tray

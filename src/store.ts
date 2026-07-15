@@ -11,6 +11,9 @@ function makeId() {
 const DEFAULT_TIER_HEIGHT = 0.55;
 const DEFAULT_POST_WIDTH  = 0.08;
 const DEFAULT_BEAM_WIDTH   = 0.10;
+// Tray wall height above the deck floor. 0.34 keeps the tray top at the same
+// place it used to sit (bottom tier 0.55 − 0.04 gap − deck 0.17).
+export const DEFAULT_TRAY_HEIGHT = 0.34;
 
 // Chassis half-width derived the same way the renderer does.
 function chassisHalfWidth(trailerWidthM: number, beamWidthM = DEFAULT_BEAM_WIDTH) {
@@ -62,6 +65,7 @@ function buildTrailer(opts: {
     name: opts.name ?? 'My Trailer',
     bedLengthM, trailerWidthM, tongueLengthM,
     beamWidthM, beamSpacingM: 2 * chHW,
+    trayHeightM: DEFAULT_TRAY_HEIGHT,
     tiers, towerGroups, axles,
   };
 }
@@ -370,7 +374,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'rowing-trailer-planner',
-      version: 4,
+      version: 5,
       migrate: (state: unknown, version: number) => {
         const s = state as { trailer?: Record<string, unknown>; boats?: unknown[]; placements?: unknown[] } | undefined;
         if (!s || !s.trailer) return { trailer: DEFAULT_TRAILER, boats: [], placements: [] };
@@ -382,6 +386,8 @@ export const useStore = create<State>()(
         if (version < 4 && isLegacy) {
           return { ...s, trailer: legacyToTrailer(t as Parameters<typeof legacyToTrailer>[0]) };
         }
+        // v4→v5: tray height became an independent field.
+        if (t.trayHeightM == null) t.trayHeightM = DEFAULT_TRAY_HEIGHT;
         return s;
       },
     }

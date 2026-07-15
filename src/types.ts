@@ -49,6 +49,7 @@ export interface Trailer {
   tongueLengthM: number;
   beamWidthM: number;      // chassis side-beam tube width
   beamSpacingM: number;    // lateral spacing between the two chassis side-beams (centre-to-centre)
+  trayHeightM: number;     // height of the U-tray wall above the deck floor (independent of the bottom tier)
   tiers: TierDef[];        // ordered top → bottom
   towerGroups: TowerGroup[];
   axles: AxleDef[];

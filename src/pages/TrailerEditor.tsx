@@ -293,6 +293,7 @@ type EndDrag =
   | { kind: 'width' }
   | { kind: 'tierH'; i: number }
   | { kind: 'tierW'; i: number }
+  | { kind: 'trayH' }
   | { kind: 'postX' };
 
 function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
@@ -311,6 +312,9 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
   const g = trailerGeom(trailer);
   const maxRail  = Math.max(trailer.trailerWidthM, ...trailer.tiers.map(t => t.railWidthM));
   const pad = 1.6;   // wide margins leave room for the tier input boxes
+  // Tray/bed top: independent height above the deck, capped just below the bottom tier.
+  const bottomTierY = g.tYs[trailer.tiers.length - 1];
+  const trayTopY = Math.min(DECK_Y + trailer.trayHeightM, bottomTierY - 0.02);
 
   // Coordinate frame is frozen while dragging: resizing a tier/width changes the
   // auto-fit viewBox, which would shift the pointer→metres mapping mid-drag and
@@ -357,6 +361,10 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
       // Drag tier i vertically → adjust its band height (distance to the tier below).
       const belowY = g.tYs[drag.i + 1] ?? 0;   // bottom tier measures from the deck datum (0)
       updateTier(trailer.tiers[drag.i].id, { heightM: Math.max(0.15, Math.min(1.5, my - belowY)) });
+    } else if (drag.kind === 'trayH') {
+      // Tray/bed top follows the pointer but can't rise above the bottom tier.
+      const capY = g.tYs[trailer.tiers.length - 1] - 0.02;
+      updateTrailer({ trayHeightM: Math.max(0.05, Math.min(capY - DECK_Y, my - DECK_Y)) });
     } else if (drag.kind === 'postX') {
       const lim = trailer.trailerWidthM / 2 - 0.05;
       if (postsPerTower > 1) {
@@ -394,10 +402,11 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
       {/* centreline */}
       <line x1={ex(0)} y1={ey(g.topY) - 0.2} x2={ex(0)} y2={ey(g.realFloor)} stroke="#e2e8f0" strokeWidth={0.012} strokeDasharray="0.1 0.08" />
 
-      {/* U-tray: floor + raised side walls, sitting on the two box-section chassis beams */}
+      {/* U-tray: floor + raised side walls, sitting on the two box-section chassis beams.
+          Tray top height is independent of the bottom tier, but capped just below it. */}
       {(() => {
         const trayInnerHW = g.chHW + trailer.beamWidthM / 2;
-        const trayTop = g.tYs[trailer.tiers.length - 1] - 0.04;   // just under the bottom tier
+        const trayTop = trayTopY;
         const wallT = 0.07;
         const floorT = 0.11;
         const wallH = ey(DECK_Y) - ey(trayTop);
@@ -419,6 +428,12 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
             {/* floor */}
             <rect x={ex(-trayInnerHW) - wallT} y={ey(DECK_Y)} width={trayInnerHW * 2 + wallT * 2} height={floorT}
               fill={COL.frame} rx={0.025} />
+            {/* tray-top drag handle (bed height) */}
+            <rect x={ex(0) - HANDLE / 2} y={ey(trayTop) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
+              fill="#0f766e" style={{ cursor: 'ns-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'trayH' })} />
+            <text x={ex(0) + HANDLE} y={ey(trayTop) + 0.06} textAnchor="start" fontSize={fs * 0.7} fill="#0f766e">
+              bed ↕
+            </text>
           </g>
         );
       })()}
@@ -433,22 +448,26 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
         width
       </text>
 
-      {/* tier rails — draggable vertically (height) with end handle (width) */}
+      {/* tier rails — draggable vertically (height) with end handle (width).
+          Labels/boxes alternate side per tier so adjacent tiers are easy to tell apart. */}
       {g.tYs.map((y, t) => {
         const hw = trailer.tiers[t].railWidthM / 2;
+        const onLeft = t % 2 === 0;
+        const lx = onLeft ? ex(-hw) - 0.86 : ex(hw) + 0.86;
+        const anchor = onLeft ? 'end' as const : 'start' as const;
         return (
           <g key={t}>
             {/* fat invisible hit-line for vertical drag */}
             <line x1={ex(-hw)} y1={ey(y)} x2={ex(hw)} y2={ey(y)} stroke="transparent" strokeWidth={HIT}
               style={{ cursor: 'ns-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tierH', i: t })} />
             <line x1={ex(-hw)} y1={ey(y)} x2={ex(hw)} y2={ey(y)} stroke={COL.tier} strokeWidth={stroke} />
-            {/* width handle at right end */}
-            <rect x={ex(hw) - HANDLE / 2} y={ey(y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
+            {/* width handle at the drawing-side end */}
+            <rect x={ex(onLeft ? -hw : hw) - HANDLE / 2} y={ey(y) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
               fill={COL.tier} style={{ cursor: 'ew-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'tierW', i: t })} />
-            <text x={ex(-hw) - 0.86} y={ey(y) - 0.10} textAnchor="end" fontSize={fs * 0.7} fill={COL.label}>
+            <text x={lx} y={ey(y) - 0.10} textAnchor={anchor} fontSize={fs * 0.7} fill={COL.label}>
               {(TIER_NAMES[t] ?? `T${t + 1}`)} h
             </text>
-            <text x={ex(-hw) - 0.86} y={ey(y) + 0.20} textAnchor="end" fontSize={fs * 0.7} fill={COL.label}>
+            <text x={lx} y={ey(y) + 0.20} textAnchor={anchor} fontSize={fs * 0.7} fill={COL.label}>
               w
             </text>
           </g>
@@ -473,14 +492,18 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
     <NumBox unit={unit} at={toPx(ex(0) + 0.42, ey(DECK_Y) - 0.32)}
       valueM={trailer.trailerWidthM}
       commit={(n) => updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, n)) })} />
+    <NumBox unit={unit} at={toPx(ex(0) + 0.95, ey(trayTopY) + 0.02)}
+      valueM={trailer.trayHeightM}
+      commit={(n) => updateTrailer({ trayHeightM: Math.max(0.05, Math.min(bottomTierY - DECK_Y - 0.02, n)) })} />
     {g.tYs.map((y, t) => {
       const hw = trailer.tiers[t].railWidthM / 2;
+      const bx = t % 2 === 0 ? ex(-hw) - 0.44 : ex(hw) + 0.44;
       return (
         <React.Fragment key={trailer.tiers[t].id}>
-          <NumBox unit={unit} at={toPx(ex(-hw) - 0.44, ey(y) - 0.14)}
+          <NumBox unit={unit} at={toPx(bx, ey(y) - 0.14)}
             valueM={trailer.tiers[t].heightM}
             commit={(n) => updateTier(trailer.tiers[t].id, { heightM: Math.max(0.15, Math.min(1.5, n)) })} />
-          <NumBox unit={unit} at={toPx(ex(-hw) - 0.44, ey(y) + 0.16)}
+          <NumBox unit={unit} at={toPx(bx, ey(y) + 0.16)}
             valueM={trailer.tiers[t].railWidthM}
             commit={(n) => updateTier(trailer.tiers[t].id, { railWidthM: Math.max(0.3, Math.min(4, n)) })} />
         </React.Fragment>
