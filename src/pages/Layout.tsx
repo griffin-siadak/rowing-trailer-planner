@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react';
 import { useStore } from '../store';
 import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers } from '../utils';
-import { SHELL_DB } from '../shellDatabase';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
 const BOAT_COLORS = [
@@ -227,7 +226,7 @@ export default function Layout() {
   const {
     trailer, boats, placements,
     addPlacement, movePlacement, setSlung, removePlacement, clearPlacements, clearAll,
-    autoLayout, addBoat,
+    autoLayout,
   } = useStore();
 
   const towerZs  = computeTowerZs(trailer);
@@ -362,20 +361,6 @@ export default function Layout() {
     setDrag(null);
   }
 
-  function addRandom() {
-    const usable = SHELL_DB.filter(s => s.lengthM && s.widthM);
-    [...usable].sort(() => Math.random() - 0.5).slice(0, 10).forEach(s =>
-      addBoat({
-        name: `${s.manufacturer} ${s.modelName}`,
-        manufacturer: s.manufacturer,
-        boatClass: s.boatClass.split('/')[0],
-        lengthM: s.lengthM,
-        widthM: s.widthM ?? 0.32,
-        weightKg: s.hullWeightKg ?? 50,
-      })
-    );
-  }
-
   // Group unplaced boats by class
   const classGroups: Record<string, typeof unplacedBoats> = {};
   for (const boat of unplacedBoats) {
@@ -393,7 +378,6 @@ export default function Layout() {
       {/* Toolbar */}
       <div style={{ padding: '10px 16px', background: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
         <button onClick={autoLayout} style={btnPrimary}>✨ Auto-Arrange</button>
-        <button onClick={addRandom} style={btnSecondary}>+ 10 Random</button>
         <button onClick={clearPlacements} style={{ ...btnSecondary, color: '#64748b', borderColor: '#cbd5e1' }}>Clear Layout</button>
         <button
           onClick={() => { if (window.confirm('Remove all boats and clear layout?')) clearAll(); }}

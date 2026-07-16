@@ -6,7 +6,6 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 import type { Boat, BoatPlacement, Trailer } from '../types';
 import { computeTowerZs, computeTowerXZs, tierYs, snapZ, boatClearsTowers } from '../utils';
-import { SHELL_DB } from '../shellDatabase';
 
 // â”€â”€ Fallback palette (used when manufacturer is unknown) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BOAT_COLORS = [
@@ -1228,27 +1227,13 @@ function Scene() {
 
 // -- Page ---------------------------------------------------------------------
 export default function Visualizer3D() {
-  const { boats, placements, autoLayout, clearPlacements, addBoat } = useStore();
+  const { boats, placements, autoLayout, clearPlacements } = useStore();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { void e; };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-
-  function addRandom() {
-    const usable = SHELL_DB.filter(s => s.lengthM && s.widthM);
-    [...usable].sort(() => Math.random() - 0.5).slice(0, 10).forEach(s =>
-      addBoat({
-        name: `${s.manufacturer} ${s.modelName}`,
-        manufacturer: s.manufacturer,
-        boatClass: s.boatClass.split('/')[0],
-        lengthM: s.lengthM,
-        widthM: s.widthM ?? 0.32,
-        weightKg: s.hullWeightKg ?? 50,
-      })
-    );
-  }
 
   const btnStyle: React.CSSProperties = {
     padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -1280,12 +1265,6 @@ export default function Visualizer3D() {
           style={{ ...btnStyle, background: 'rgba(29,78,216,0.85)', color: 'white' }}
         >
           ✨ Auto-Arrange
-        </button>
-        <button
-          onClick={addRandom}
-          style={{ ...btnStyle, background: 'rgba(255,255,255,0.15)', color: 'white' }}
-        >
-          + 10 Random
         </button>
         <button
           onClick={clearPlacements}
