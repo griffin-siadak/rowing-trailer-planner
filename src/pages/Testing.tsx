@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useStore, BOAT_CLASSES } from '../store';
-import { SHELL_DB } from '../shellDatabase';
+import { useStore } from '../store';
+import { SHELL_DB, MANUFACTURERS } from '../shellDatabase';
 
 const CLASS_ORDER = ['8+', '4+', '4-', '4x', '2-', '2x', '1x'];
 
@@ -20,40 +20,40 @@ export default function Testing() {
   const { boats, addBoat, clearAll } = useStore();
   const [count, setCount] = useState(10);
   const [cls, setCls] = useState<string>('any');
+  const [maker, setMaker] = useState<string>('any');
+  const [includeOdd, setIncludeOdd] = useState(false);
   const [guest, setGuest] = useState(false);
+  const [msg, setMsg] = useState('');
 
   const clubCount  = boats.filter(b => !b.guest).length;
   const guestCount = boats.filter(b => b.guest).length;
 
   function generate() {
     const n = Math.max(1, Math.min(100, Math.round(count)));
-    const usable = SHELL_DB.filter(s => s.lengthM && s.widthM);
-    const pool = cls === 'any'
-      ? usable
-      : usable.filter(s => s.boatClass.split('/').map(x => x.trim()).includes(cls));
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
-
-    for (let i = 0; i < n; i++) {
-      const s = shuffled.length ? shuffled[i % shuffled.length] : null;
-      if (s) {
-        addBoat({
-          name: `${s.manufacturer} ${s.modelName}`,
-          manufacturer: s.manufacturer,
-          boatClass: cls === 'any' ? s.boatClass.split('/')[0] : cls,
-          lengthM: s.lengthM,
-          widthM: s.widthM ?? 0.32,
-          weightKg: s.hullWeightKg ?? 50,
-          guest,
-        });
-      } else {
-        // No matching shells for this class → fall back to preset dimensions.
-        const preset = BOAT_CLASSES[cls] ?? BOAT_CLASSES['1x'];
-        addBoat({
-          name: `Test ${cls} #${i + 1}`, boatClass: cls,
-          lengthM: preset.lengthM, widthM: preset.widthM, weightKg: preset.weightKg, guest,
-        });
-      }
+    const pool = SHELL_DB.filter(s =>
+      s.lengthM && s.widthM
+      && (includeOdd || s.category === 'racing')                                   // exclude touring/coastal/etc unless asked
+      && (maker === 'any' || s.manufacturer === maker)                             // manufacturer filter
+      && (cls === 'any' || s.boatClass.split('/').map(x => x.trim()).includes(cls)) // class filter
+    );
+    if (pool.length === 0) {
+      setMsg('No boats match those filters — try Any class/manufacturer or include odd-size boats.');
+      return;
     }
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    for (let i = 0; i < n; i++) {
+      const s = shuffled[i % shuffled.length];
+      addBoat({
+        name: `${s.manufacturer} ${s.modelName}`,
+        manufacturer: s.manufacturer,
+        boatClass: cls === 'any' ? s.boatClass.split('/')[0] : cls,
+        lengthM: s.lengthM,
+        widthM: s.widthM ?? 0.32,
+        weightKg: s.hullWeightKg ?? 50,
+        guest,
+      });
+    }
+    setMsg(`Added ${n} boat${n === 1 ? '' : 's'}.`);
   }
 
   return (
@@ -95,7 +95,19 @@ export default function Testing() {
               ))}
             </div>
           </div>
+          <div style={{ flex: '1 1 220px' }}>
+            <label style={label}>Manufacturer</label>
+            <select style={input} value={maker} onChange={(e) => setMaker(e.target.value)}>
+              <option value="any">Any manufacturer</option>
+              {MANUFACTURERS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
         </div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 14, color: '#475569', cursor: 'pointer' }}>
+          <input type="checkbox" checked={includeOdd} onChange={(e) => setIncludeOdd(e.target.checked)} />
+          Include odd-size boats (touring, coastal, recreational, adaptive)
+        </label>
 
         <button onClick={generate}
           style={{
@@ -104,6 +116,9 @@ export default function Testing() {
           }}>
           Generate {Math.max(1, Math.min(100, Math.round(count) || 1))} {cls === 'any' ? '' : cls + ' '}{guest ? 'guest' : 'club'} boat{count === 1 ? '' : 's'}
         </button>
+        {msg && (
+          <div style={{ marginTop: 8, fontSize: 13, color: msg.startsWith('No') ? '#b91c1c' : '#16a34a' }}>{msg}</div>
+        )}
       </div>
 
       <div style={card}>
