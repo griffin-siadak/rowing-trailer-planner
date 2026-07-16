@@ -315,6 +315,7 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
   // Tray/bed top: independent height above the deck, capped just below the bottom tier.
   const bottomTierY = g.tYs[trailer.tiers.length - 1];
   const trayTopY = Math.min(DECK_Y + trailer.trayHeightM, bottomTierY - 0.02);
+  const trayInnerHW = g.chHW + trailer.beamWidthM / 2;
 
   // Coordinate frame is frozen while dragging: resizing a tier/width changes the
   // auto-fit viewBox, which would shift the pointer→metres mapping mid-drag and
@@ -405,7 +406,6 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
       {/* U-tray: floor + raised side walls, sitting on the two box-section chassis beams.
           Tray top height is independent of the bottom tier, but capped just below it. */}
       {(() => {
-        const trayInnerHW = g.chHW + trailer.beamWidthM / 2;
         const trayTop = trayTopY;
         const wallT = 0.07;
         const floorT = 0.11;
@@ -428,10 +428,10 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
             {/* floor */}
             <rect x={ex(-trayInnerHW) - wallT} y={ey(DECK_Y)} width={trayInnerHW * 2 + wallT * 2} height={floorT}
               fill={COL.frame} rx={0.025} />
-            {/* tray-top drag handle (bed height) */}
-            <rect x={ex(0) - HANDLE / 2} y={ey(trayTop) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
+            {/* tray-top drag handle (bed height) — on the left tray wall to avoid the centre boxes */}
+            <rect x={ex(-trayInnerHW) - HANDLE / 2} y={ey(trayTop) - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
               fill="#0f766e" style={{ cursor: 'ns-resize' }} onPointerDown={(e) => startDrag(e, { kind: 'trayH' })} />
-            <text x={ex(0) + HANDLE} y={ey(trayTop) + 0.06} textAnchor="start" fontSize={fs * 0.7} fill="#0f766e">
+            <text x={ex(-trayInnerHW) - HANDLE - 0.05} y={ey(trayTop) + 0.06} textAnchor="end" fontSize={fs * 0.7} fill="#0f766e">
               bed ↕
             </text>
           </g>
@@ -492,7 +492,7 @@ function EndView({ trailer, unit }: { trailer: Trailer; unit: Unit }) {
     <NumBox unit={unit} at={toPx(ex(0) + 0.42, ey(DECK_Y) - 0.32)}
       valueM={trailer.trailerWidthM}
       commit={(n) => updateTrailer({ trailerWidthM: Math.max(0.6, Math.min(4, n)) })} />
-    <NumBox unit={unit} at={toPx(ex(0) + 0.95, ey(trayTopY) + 0.02)}
+    <NumBox unit={unit} at={toPx(ex(-trayInnerHW) - 0.5, ey(trayTopY) - 0.14)}
       valueM={trailer.trayHeightM}
       commit={(n) => updateTrailer({ trayHeightM: Math.max(0.05, Math.min(bottomTierY - DECK_Y - 0.02, n)) })} />
     {g.tYs.map((y, t) => {
