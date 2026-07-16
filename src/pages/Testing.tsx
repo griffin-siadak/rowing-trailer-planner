@@ -22,7 +22,6 @@ export default function Testing() {
   const [cls, setCls] = useState<string>('any');
   const [maker, setMaker] = useState<string>('any');
   const [includeOdd, setIncludeOdd] = useState(false);
-  const [guest, setGuest] = useState(false);
   const [msg, setMsg] = useState('');
 
   const clubCount  = boats.filter(b => !b.guest).length;
@@ -50,7 +49,6 @@ export default function Testing() {
         lengthM: s.lengthM,
         widthM: s.widthM ?? 0.32,
         weightKg: s.hullWeightKg ?? 50,
-        guest,
       });
     }
     setMsg(`Added ${n} boat${n === 1 ? '' : 's'}.`);
@@ -79,22 +77,6 @@ export default function Testing() {
               {CLASS_ORDER.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          <div style={{ flex: '1 1 120px' }}>
-            <label style={label}>Owner</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {([['Club', false], ['Guest', true]] as const).map(([lbl, val]) => (
-                <button key={lbl} type="button" onClick={() => setGuest(val)}
-                  style={{
-                    flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14,
-                    border: guest === val ? '2px solid #1d4ed8' : '1px solid #cbd5e1',
-                    background: guest === val ? '#dbeafe' : 'white',
-                    color: guest === val ? '#1d4ed8' : '#64748b',
-                  }}>
-                  {lbl}
-                </button>
-              ))}
-            </div>
-          </div>
           <div style={{ flex: '1 1 220px' }}>
             <label style={label}>Manufacturer</label>
             <select style={input} value={maker} onChange={(e) => setMaker(e.target.value)}>
@@ -114,7 +96,7 @@ export default function Testing() {
             width: '100%', padding: '11px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
             fontWeight: 700, fontSize: 15, background: '#1d4ed8', color: 'white',
           }}>
-          Generate {Math.max(1, Math.min(100, Math.round(count) || 1))} {cls === 'any' ? '' : cls + ' '}{guest ? 'guest' : 'club'} boat{count === 1 ? '' : 's'}
+          Generate {Math.max(1, Math.min(100, Math.round(count) || 1))} {cls === 'any' ? '' : cls + ' '}boat{count === 1 ? '' : 's'}
         </button>
         {msg && (
           <div style={{ marginTop: 8, fontSize: 13, color: msg.startsWith('No') ? '#b91c1c' : '#16a34a' }}>{msg}</div>
