@@ -1028,7 +1028,7 @@ function Scene() {
     const newTier = calcTier(e.nativeEvent, drag);
     const isOnTrailer = drag.previewX >= -halfW - 0.5 && drag.previewX <= halfW + 0.5;
     const clear = boat
-      ? (newTier === 0 || boatClearsTowers(drag.previewX, drag.previewZ, boat.widthM, boat.lengthM, towerXZs))
+      ? (newTier === 0 || boatClearsTowers(boat, drag.previewX, drag.previewZ, towerXZs))
       : true;
 
     if (drag.source === 'placement') {

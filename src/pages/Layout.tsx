@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
 import { useStore } from '../store';
 import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers } from '../utils';
+import { boatHalfWidthAt } from '../boatShape';
+import type { Boat } from '../types';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
 const BOAT_COLORS = [
@@ -19,18 +21,20 @@ function colX(tier: number, trayW: number) {
   return SVG_PAD + tier * (trayW + COL_GAP);
 }
 
-function boatOutlinePath(w: number, l: number): string {
-  const hw = w / 2;
-  const hl = l / 2;
-  const bt = hl * 0.13;
-  const st = hl * 0.17;
-  return (
-    `M 0,${-hl} ` +
-    `C ${hw * 0.10},${-hl + bt} ${hw},${-hl + bt * 4} ${hw},0 ` +
-    `C ${hw},${hl - st * 3} ${hw * 0.14},${hl - st} 0,${hl} ` +
-    `C ${-hw * 0.14},${hl - st} ${-hw},${hl - st * 3} ${-hw},0 ` +
-    `C ${-hw},${-hl + bt * 4} ${-hw * 0.10},${-hl + bt} 0,${-hl} Z`
-  );
+// Plan outline sampled from the boat's real beam profile. Local coords: length
+// along y (bow at -l/2), width along x. Half-width at local y comes from the
+// profile at z = -y (bow = +z).
+function boatOutlinePath(boat: Boat): string {
+  const hl = boat.lengthM / 2;
+  const N = 26;
+  const right: string[] = [], left: string[] = [];
+  for (let i = 0; i <= N; i++) {
+    const y = -hl + 2 * hl * (i / N);
+    const hw = boatHalfWidthAt(boat, -y);
+    right.push(`${hw.toFixed(4)},${y.toFixed(4)}`);
+    left.push(`${(-hw).toFixed(4)},${y.toFixed(4)}`);
+  }
+  return `M ${right.join(' L ')} L ${left.reverse().join(' L ')} Z`;
 }
 
 function zToSvgY(zM: number, halfLen: number, overhang: number) {
@@ -298,7 +302,7 @@ export default function Layout() {
     if (!boat) return false;
     if (!isValidZ(zM, boat.lengthM, towerZs)) return false;
     if (tier >= tierCount - 2 && zM + boat.lengthM / 2 > bowFrontLimit) return false;
-    if (tier > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) return false;
+    if (tier > 0 && !boatClearsTowers(boat, xM, zM, towerXZs)) return false;
     return !placements.some(p => {
       if (p.tier !== tier || p.id === excludeId) return false;
       if (!!p.slung !== isSlung) return false;
@@ -306,7 +310,7 @@ export default function Layout() {
       if (!pb) return false;
       const px = drag?.placementId === p.id ? drag.previewX : p.xM;
       const pz = drag?.placementId === p.id ? drag.previewZ : p.zCenterM;
-      return footprintsOverlap(xM, zM, boat.widthM, boat.lengthM, px, pz, pb.widthM, pb.lengthM);
+      return footprintsOverlap(boat, xM, zM, pb, px, pz);
     });
   }
 
@@ -515,7 +519,7 @@ export default function Layout() {
                     <g key={p.id} data-pid={p.id} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
                       <path
                         data-pid={p.id}
-                        d={boatOutlinePath(boat.widthM, boat.lengthM)}
+                        d={boatOutlinePath(boat)}
                         transform={shapeTransform}
                         fill={invalid ? '#fca5a5' : color}
                         fillOpacity={isDragging ? 0.55 : isSlung ? 0.60 : 0.88}
@@ -577,7 +581,7 @@ export default function Layout() {
             return (
               <g key="drag-ghost" style={{ pointerEvents: 'none' }}>
                 <path
-                  d={boatOutlinePath(boat.widthM, boat.lengthM)}
+                  d={boatOutlinePath(boat)}
                   transform={`translate(${boatCX},${boatCY})`}
                   fill={drag.valid ? color : '#fca5a5'}
                   fillOpacity={0.55}

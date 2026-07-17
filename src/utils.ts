@@ -1,4 +1,5 @@
-import type { Trailer } from './types';
+import type { Trailer, Boat } from './types';
+import { boatHalfWidthAt } from './boatShape';
 
 // Longitudinal Z of each tower group, taken straight from the explicit model.
 export function computeTowerZs(trailer: Trailer): number[] {
@@ -30,16 +31,18 @@ export function computeTowerXZs(trailer: Trailer): { x: number; z: number }[] {
   return result;
 }
 
-// Returns false if any tower post falls within the boat's hull footprint.
+// Returns false if any tower post falls within the boat's hull footprint,
+// using the boat's real beam profile so fine ends can clear a post.
 // gap: minimum clearance between hull edge and tower post centre (m).
 export function boatClearsTowers(
-  boatX: number, boatZ: number, boatW: number, boatL: number,
+  boat: Boat, boatX: number, boatZ: number,
   towerXZs: { x: number; z: number }[],
   gap = 0.06,
 ): boolean {
+  const halfL = boat.lengthM / 2;
   for (const { x: tx, z: tz } of towerXZs) {
-    if (tz <= boatZ - boatL / 2 || tz >= boatZ + boatL / 2) continue;
-    const hw = hullHalfWidth(tz - boatZ, boatL, boatW);
+    if (tz <= boatZ - halfL || tz >= boatZ + halfL) continue;
+    const hw = boatHalfWidthAt(boat, tz - boatZ);
     if (Math.abs(boatX - tx) < hw + gap) return false;
   }
   return true;
@@ -80,26 +83,23 @@ export function snapZ(
   return bestCenter;
 }
 
-function hullHalfWidth(dz: number, l: number, w: number): number {
-  const t = (2 * dz) / l;
-  if (Math.abs(t) >= 1) return 0;
-  return (w / 2) * Math.pow(1 - t * t, 0.38);
-}
-
+// True if two boats' hulls overlap laterally anywhere along their shared span,
+// sampling each boat's real beam profile so a fine bow can nest beside a wide midsection.
 export function footprintsOverlap(
-  ax: number, az: number, aw: number, al: number,
-  bx: number, bz: number, bw: number, bl: number,
+  a: Boat, ax: number, az: number,
+  b: Boat, bx: number, bz: number,
   gapX = 0.04,
 ): boolean {
+  const al = a.lengthM, bl = b.lengthM;
   const overlapMin = Math.max(az - al / 2, bz - bl / 2);
   const overlapMax = Math.min(az + al / 2, bz + bl / 2);
   if (overlapMin >= overlapMax) return false;
 
   const dx = Math.abs(ax - bx);
-  const N = 10;
+  const N = 12;
   for (let i = 0; i <= N; i++) {
     const z = overlapMin + (overlapMax - overlapMin) * (i / N);
-    if (dx < hullHalfWidth(z - az, al, aw) + hullHalfWidth(z - bz, bl, bw) + gapX) return true;
+    if (dx < boatHalfWidthAt(a, z - az) + boatHalfWidthAt(b, z - bz) + gapX) return true;
   }
   return false;
 }

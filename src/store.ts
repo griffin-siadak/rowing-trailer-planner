@@ -347,12 +347,12 @@ export const useStore = create<State>()(
               for (const zM of validZs) {
                 if (slung && t === trailer.tiers.length - 1) continue;
                 if (t >= trailer.tiers.length - 2 && zM + boat.lengthM / 2 > bowFrontLimit) continue;
-                if (!slung && t > 0 && !boatClearsTowers(xM, zM, boat.widthM, boat.lengthM, towerXZs)) continue;
+                if (!slung && t > 0 && !boatClearsTowers(boat, xM, zM, towerXZs)) continue;
                 const collision = newPlacements.some(p => {
                   if (p.tier !== t || !!p.slung !== slung) return false;
                   const pb = boats.find(b => b.id === p.boatId);
                   if (!pb) return false;
-                  return footprintsOverlap(xM, zM, boat.widthM, boat.lengthM, p.xM, p.zCenterM, pb.widthM, pb.lengthM);
+                  return footprintsOverlap(boat, xM, zM, pb, p.xM, p.zCenterM);
                 });
                 if (!collision) {
                   newPlacements.push({ id: makeId(), boatId: boat.id, tier: t, xM, zCenterM: zM, slung: slung || undefined });
