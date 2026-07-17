@@ -1107,10 +1107,24 @@ function StagingRack({ tiers, rackLength, armHW, offsetX, label }: {
 }
 
 // â”€â”€ Controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Free camera: orbit with left-drag, PAN anywhere with right-drag (or
+// two-finger drag on touch), zoom with wheel/pinch. Panning moves the view
+// target, so the camera is no longer tied to the trailer centre.
 function Controls({ maxDist, enabled }: { maxDist: number; enabled: boolean }) {
   const ref = useRef<any>(null);
   useFrame(() => {});
-  return <OrbitControls ref={ref} enabled={enabled} enablePan={false} minDistance={2} maxDistance={maxDist} />;
+  return (
+    <OrbitControls
+      ref={ref}
+      enabled={enabled}
+      enablePan
+      screenSpacePanning
+      panSpeed={1.1}
+      minDistance={0.5}
+      maxDistance={maxDist * 2}
+      zoomToCursor
+    />
+  );
 }
 
 // -- Scene --------------------------------------------------------------------
@@ -1466,7 +1480,7 @@ export default function Visualizer3D() {
         background: 'rgba(0,0,0,0.55)', color: 'white', fontSize: 11,
         padding: '4px 12px', borderRadius: 99, pointerEvents: 'none',
       }}>
-        Drag to orbit · Pinch to zoom
+        Drag to orbit · Right-drag / two-finger to move · Scroll to zoom
       </div>
     </div>
   );
