@@ -1,10 +1,70 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { boatShapeOf, STATIONS, maxBeamOf, sampleProfile } from '../boatShape';
 import type { BoatShape } from '../types';
 
 const M_TO_IN = 39.3701;
 const inch = (m: number) => `${(m * M_TO_IN).toFixed(1)}"`;
+
+// Maps SVG viewBox coordinates to CSS pixels inside a wrapper div so HTML
+// inputs can sit on the drawing (same approach as the trailer editor).
+function useFit(vbW: number, vbH: number) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setDims({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    setDims({ w: el.clientWidth, h: el.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+  const toPx = (x: number, y: number) => {
+    if (!dims || dims.w === 0) return null;
+    const s = Math.min(dims.w / vbW, dims.h / vbH);
+    return { left: (dims.w - vbW * s) / 2 + x * s, top: (dims.h - vbH * s) / 2 + y * s };
+  };
+  return { wrapRef, toPx };
+}
+
+// Small always-editable value box centred on a drawing point. Shows/edits
+// inches; commits metres on blur/Enter.
+function NumIn({ at, valueM, commit }: {
+  at: { left: number; top: number } | null;
+  valueM: number; commit: (m: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  if (!at) return null;
+  function done() {
+    if (draft !== null) {
+      const n = parseFloat(draft);
+      if (!isNaN(n)) commit(n / M_TO_IN);
+    }
+    setDraft(null);
+  }
+  return (
+    <input
+      type="text" inputMode="decimal"
+      value={draft ?? (valueM * M_TO_IN).toFixed(1)}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => { setDraft((valueM * M_TO_IN).toFixed(1)); e.target.select(); }}
+      onBlur={done}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') setDraft(null);
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute', left: at.left, top: at.top,
+        transform: 'translate(-50%, -50%)',
+        width: 46, height: 17, boxSizing: 'border-box',
+        fontSize: 10, textAlign: 'center', color: '#334155',
+        border: '1px solid #cbd5e1', borderRadius: 3,
+        background: 'rgba(255,255,255,0.95)', padding: 0, outline: 'none',
+      }}
+    />
+  );
+}
 
 // Fixed display scales (metres → viewBox units). Fixed so dragging never
 // rescales the drawing out from under the cursor.
@@ -24,6 +84,8 @@ export default function BoatShapeEditor({ boatId, onClose }: { boatId: string; o
   const planRef = useRef<SVGSVGElement>(null);
   const sideRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag>(null);
+  const planFit = useFit(PLAN_VBW, PLAN_VBH);
+  const sideFit = useFit(SIDE_VBW, SIDE_VBH);
 
   if (!boat) return null;
   const shape = boatShapeOf(boat);
@@ -118,31 +180,42 @@ export default function BoatShapeEditor({ boatId, onClose }: { boatId: string; o
         <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
           Plan · beam taper (bow → stern)
         </div>
+        <div ref={planFit.wrapRef} style={{ position: 'relative', marginBottom: 14 }}>
         <svg ref={planRef} viewBox={`0 0 ${PLAN_VBW} ${PLAN_VBH}`}
-          style={{ width: '100%', height: 190, display: 'block', touchAction: 'none', background: '#f8fafc', borderRadius: 8, marginBottom: 14 }}
+          style={{ width: '100%', height: 190, display: 'block', touchAction: 'none', background: '#f8fafc', borderRadius: 8 }}
           onPointerMove={onPlanMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
           <line x1={px(0, PLAN_VBW)} y1={PLAN_VBH / 2} x2={px(1, PLAN_VBW)} y2={PLAN_VBH / 2} stroke="#e2e8f0" strokeWidth={0.02} strokeDasharray="0.15 0.1" />
           <path d={planPath} fill="#dbeafe" stroke="#1d4ed8" strokeWidth={0.03} />
           {STATIONS.map((f, i) => {
             const x = px(f, PLAN_VBW), y = PLAN_VBH / 2 - shape.beam[i] * PLAN_KW;
             return (
-              <g key={i}>
-                <rect x={x - HANDLE / 2} y={y - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
-                  fill="#1d4ed8" style={{ cursor: 'ns-resize' }} onPointerDown={(e) => start(e, { curve: 'beam', i }, planRef.current)} />
-                <text x={x} y={y - 0.16} textAnchor="middle" fontSize={0.24} fill="#1e3a8a">{inch(shape.beam[i] * 2)}</text>
-              </g>
+              <rect key={i} x={x - HANDLE / 2} y={y - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
+                fill="#1d4ed8" style={{ cursor: 'ns-resize' }} onPointerDown={(e) => start(e, { curve: 'beam', i }, planRef.current)} />
             );
           })}
           <text x={px(0, PLAN_VBW)} y={PLAN_VBH - 0.12} textAnchor="middle" fontSize={0.22} fill="#94a3b8">bow</text>
           <text x={px(1, PLAN_VBW)} y={PLAN_VBH - 0.12} textAnchor="middle" fontSize={0.22} fill="#94a3b8">stern</text>
         </svg>
+        {/* Editable width value at each station (full width, inches) */}
+        {STATIONS.map((f, i) => (
+          <NumIn key={i}
+            at={planFit.toPx(px(f, PLAN_VBW), PLAN_VBH / 2 - shape.beam[i] * PLAN_KW - 0.32)}
+            valueM={shape.beam[i] * 2}
+            commit={(m) => {
+              const beam = [...shape.beam];
+              beam[i] = +Math.max(0.01, Math.min(0.6, m / 2)).toFixed(4);
+              commit({ beam });
+            }} />
+        ))}
+        </div>
 
         {/* Side view: depth + rocker */}
         <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
           Side · depth (blue) &amp; keel rocker (teal)
         </div>
+        <div ref={sideFit.wrapRef} style={{ position: 'relative', marginBottom: 14 }}>
         <svg ref={sideRef} viewBox={`0 0 ${SIDE_VBW} ${SIDE_VBH}`}
-          style={{ width: '100%', height: 170, display: 'block', touchAction: 'none', background: '#f8fafc', borderRadius: 8, marginBottom: 14 }}
+          style={{ width: '100%', height: 170, display: 'block', touchAction: 'none', background: '#f8fafc', borderRadius: 8 }}
           onPointerMove={onSideMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
           <path d={sidePath} fill="#eef2ff" stroke="#94a3b8" strokeWidth={0.02} />
           {/* keel / rocker line */}
@@ -155,10 +228,31 @@ export default function BoatShapeEditor({ boatId, onClose }: { boatId: string; o
                 fill="#0f766e" style={{ cursor: 'ns-resize' }} onPointerDown={(e) => start(e, { curve: 'rocker', i }, sideRef.current)} />
               <rect x={sheerPts[i].x - HANDLE / 2} y={sheerPts[i].y - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}
                 fill="#1d4ed8" style={{ cursor: 'ns-resize' }} onPointerDown={(e) => start(e, { curve: 'depth', i }, sideRef.current)} />
-              <text x={sheerPts[i].x} y={sheerPts[i].y - 0.14} textAnchor="middle" fontSize={0.22} fill="#1e3a8a">{inch(shape.depth[i])}</text>
             </g>
           ))}
         </svg>
+        {/* Editable depth values above the sheer line, rocker values below the keel */}
+        {STATIONS.map((_f, i) => (
+          <NumIn key={`d${i}`}
+            at={sideFit.toPx(sheerPts[i].x, sheerPts[i].y - 0.30)}
+            valueM={shape.depth[i]}
+            commit={(m) => {
+              const depth = [...shape.depth];
+              depth[i] = +Math.max(0.03, Math.min(0.5, m)).toFixed(4);
+              commit({ depth });
+            }} />
+        ))}
+        {STATIONS.map((_f, i) => (
+          <NumIn key={`r${i}`}
+            at={sideFit.toPx(keelPts[i].x, keelPts[i].y + 0.30)}
+            valueM={shape.rocker[i]}
+            commit={(m) => {
+              const rocker = [...shape.rocker];
+              rocker[i] = +Math.max(0, Math.min(0.2, m)).toFixed(4);
+              commit({ rocker });
+            }} />
+        ))}
+        </div>
 
         {/* Non-geometry fields */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
