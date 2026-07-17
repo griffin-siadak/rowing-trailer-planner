@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useStore } from '../store';
-import { boatShapeOf, STATIONS, maxBeamOf } from '../boatShape';
+import { boatShapeOf, STATIONS, maxBeamOf, sampleProfile } from '../boatShape';
 import type { BoatShape } from '../types';
 
 const M_TO_IN = 39.3701;
@@ -77,15 +77,25 @@ export default function BoatShapeEditor({ boatId, onClose }: { boatId: string; o
   };
   const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#475569' };
 
-  // ── Plan-view outline path (bow → stern along the top, back along the bottom) ──
-  const topPts = STATIONS.map((f, i) => `${px(f, PLAN_VBW)},${PLAN_VBH / 2 - shape.beam[i] * PLAN_KW}`);
-  const botPts = [...STATIONS].map((f, i) => `${px(f, PLAN_VBW)},${PLAN_VBH / 2 + shape.beam[i] * PLAN_KW}`).reverse();
-  const planPath = `M ${topPts.join(' L ')} L ${botPts.join(' L ')} Z`;
-
-  // ── Side-view keel (rocker) + sheer (keel + depth) lines ──
+  // ── Smoothly-sampled outlines (match the model's cosine interpolation) ──
+  const SAMP = 48;
+  const planTop: string[] = [], planBot: string[] = [];
+  const keelLine: string[] = [], sheerLine: string[] = [];
+  for (let k = 0; k <= SAMP; k++) {
+    const f = k / SAMP;
+    const hw = sampleProfile(shape.beam, f), xP = px(f, PLAN_VBW);
+    planTop.push(`${xP},${PLAN_VBH / 2 - hw * PLAN_KW}`);
+    planBot.push(`${xP},${PLAN_VBH / 2 + hw * PLAN_KW}`);
+    const xS = px(f, SIDE_VBW);
+    const ky = SIDE_BASE - sampleProfile(shape.rocker, f) * SIDE_KD;
+    keelLine.push(`${xS},${ky}`);
+    sheerLine.push(`${xS},${ky - sampleProfile(shape.depth, f) * SIDE_KD}`);
+  }
+  const planPath = `M ${planTop.join(' L ')} L ${planBot.reverse().join(' L ')} Z`;
+  const sidePath = `M ${sheerLine.join(' L ')} L ${[...keelLine].reverse().join(' L ')} Z`;
+  // Control-point positions (handles sit on the curve at each station)
   const keelPts = STATIONS.map((f, i) => ({ x: px(f, SIDE_VBW), y: SIDE_BASE - shape.rocker[i] * SIDE_KD }));
   const sheerPts = STATIONS.map((f, i) => ({ x: px(f, SIDE_VBW), y: keelPts[i].y - shape.depth[i] * SIDE_KD }));
-  const sidePath = `M ${sheerPts.map(p => `${p.x},${p.y}`).join(' L ')} L ${[...keelPts].reverse().map(p => `${p.x},${p.y}`).join(' L ')} Z`;
 
   return (
     <div onClick={onClose} style={{
@@ -136,9 +146,9 @@ export default function BoatShapeEditor({ boatId, onClose }: { boatId: string; o
           onPointerMove={onSideMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
           <path d={sidePath} fill="#eef2ff" stroke="#94a3b8" strokeWidth={0.02} />
           {/* keel / rocker line */}
-          <polyline points={keelPts.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#0f766e" strokeWidth={0.03} />
+          <polyline points={keelLine.join(' ')} fill="none" stroke="#0f766e" strokeWidth={0.03} />
           {/* sheer / depth line */}
-          <polyline points={sheerPts.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#1d4ed8" strokeWidth={0.03} />
+          <polyline points={sheerLine.join(' ')} fill="none" stroke="#1d4ed8" strokeWidth={0.03} />
           {STATIONS.map((_f, i) => (
             <g key={i}>
               <rect x={keelPts[i].x - HANDLE / 2} y={keelPts[i].y - HANDLE / 2} width={HANDLE} height={HANDLE} rx={0.03}

@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 import type { Boat, BoatPlacement, Trailer } from '../types';
 import { computeTowerZs, computeTowerXZs, tierYs, snapZ, boatClearsTowers } from '../utils';
+import { boatHalfWidthAt, boatDepthAt, boatRockerAt } from '../boatShape';
 
 // â”€â”€ Fallback palette (used when manufacturer is unknown) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BOAT_COLORS = [
@@ -202,39 +203,30 @@ function tierY(tier: number, totalTiers: number) {
 // â”€â”€ Hull geometry factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Open-top V-shaped cross-section: port gunwale (âˆ’hw,0) â†’ keel (0,âˆ’depth) â†’ starboard (hw,0).
 // Parabolic floor: y = âˆ’depth Â· taper Â· 4u(1âˆ’u)  where uâˆˆ[0,1] portâ†’stbd.
-// Length taper: sin(Ï€Â·t) â€” zero at bow/stern, max at midship.
-// This replaces the old closed-ellipse "sausage" with a proper shell profile.
-function buildHullGeometry(
-  lengthM: number, widthM: number, depth: number,
-  vShape = 1.0, bowPower = 1.0, sternPower = 1.0, maxBeamT = 0.5,
-): THREE.BufferGeometry {
-  const LONG  = 56;
+// Hull surface swept from the boat's real beam/depth/rocker profiles. The
+// profiles are sampled smoothly (cosine easing in sampleProfile), so the many
+// longitudinal stations give a fair, curved hull rather than blocky facets.
+// vShape controls cross-section fullness (per-manufacturer theme).
+function buildHullGeometry(boat: Boat, vShape = 1.0): THREE.BufferGeometry {
+  const L = boat.lengthM;
+  const LONG = 64;
   const CROSS = 28;
   const pos: number[] = [];
   const idx: number[] = [];
 
   for (let i = 0; i <= LONG; i++) {
-    // t=0 â†’ stern tip, t=maxBeamT â†’ widest point, t=1 â†’ bow tip
-    const t = i / LONG;
-    const z = (t - 0.5) * lengthM;
-
-    // Asymmetric plan-view taper: sin^power so higher power = finer/longer run.
-    // HULL_MIN_TIP prevents a zero-width geometric point at the tips.
-    const minTip = HULL_MIN_TIP;
-    let taper: number;
-    if (t <= maxBeamT) {
-      const u = t / maxBeamT;                                  // 0 at stern, 1 at max beam
-      taper = minTip + (1 - minTip) * Math.pow(Math.sin(Math.PI / 2 * u), sternPower);
-    } else {
-      const u = (1 - t) / (1 - maxBeamT);                     // 0 at bow, 1 at max beam
-      taper = minTip + (1 - minTip) * Math.pow(Math.sin(Math.PI / 2 * u), bowPower);
-    }
+    const t = i / LONG;               // 0 = stern tip, 1 = bow tip
+    const z = (t - 0.5) * L;          // z: stern −L/2 … bow +L/2 (+z faces the tongue)
+    const hb = Math.max(HULL_MIN_TIP * 0.01, boatHalfWidthAt(boat, z));
+    const d  = boatDepthAt(boat, z);
+    const rk = boatRockerAt(boat, z); // keel rise toward the ends
 
     for (let j = 0; j <= CROSS; j++) {
       const u        = j / CROSS;
-      const x        = (u - 0.5) * widthM * taper;
-      const parabola = 4 * u * (1 - u);
-      const y        = depth * taper * Math.pow(parabola, vShape);
+      const x        = (u - 0.5) * 2 * hb;
+      const parabola = 4 * u * (1 - u);              // 0 at gunwale edges, 1 at keel centre
+      // Keel depth from the depth curve; rocker lifts the keel line toward the ends.
+      const y        = d * Math.pow(parabola, vShape) - rk * parabola;
       pos.push(x, y, z);
     }
   }
@@ -296,11 +288,9 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
   const roughness  = theme?.roughness ?? 0.50;
   const metalness  = theme?.metalness ?? 0.10;
   const vShape     = theme?.vShape    ?? 1.0;
-  const bowPower   = theme?.bowPower  ?? 1.0;
-  const sternPower = theme?.sternPower ?? 1.0;
-  const maxBeamT   = theme?.maxBeamT  ?? 0.5;
 
-  const depth   = Math.min(boat.widthM * 0.62, 0.26);
+  const midDepth = boatDepthAt(boat, 0);                                             // keel depth at midships
+  const bowKeelY = Math.max(0, boatDepthAt(boat, boat.lengthM / 2) - boatRockerAt(boat, boat.lengthM / 2));
 
   // Skeg parameters â€” per-manufacturer or sensible defaults
   const skegCfg    = theme?.skeg;
@@ -311,14 +301,12 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
   const sPosF      = skegCfg?.posF       ?? 0.09;
 
   const hullGeom = useMemo(
-    () => buildHullGeometry(boat.lengthM, boat.widthM, depth, vShape, bowPower, sternPower, maxBeamT),
-    [boat.lengthM, boat.widthM, depth, vShape, bowPower, sternPower, maxBeamT]
+    () => buildHullGeometry(boat, vShape),
+    [boat.lengthM, boat.shape, vShape]
   );
 
   // Skeg geometry â€” flat trapezoidal plate (DoubleSide) on the keel near the stern.
-  // The fin base must follow the actual keel surface, which tapers toward the stern.
-  // We compute the hull taper at the skeg chord midpoint (same formula as buildHullGeometry)
-  // to find the true keel Y there, then seat the fin flush against it.
+  // Seat the fin against the real keel Y (depth − rocker) at the skeg position.
   const skegGeom = useMemo(() => {
     const L  = boat.lengthM;
     const z0 = -L / 2 + sPosF * L;         // trailing edge at keel (stern side)
@@ -326,18 +314,8 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     const z2 = z1 - sTrailSwp;             // leading edge tip (swept toward stern)
     const z3 = z0 + sLeadSweep;            // trailing edge tip (raked slightly toward bow)
 
-    // Hull taper at skeg chord midpoint (t: stern=0 â†’ bow=1)
-    const tMid = sPosF + sChord / (2 * L);
-    const minTip = HULL_MIN_TIP;
-    let taperMid: number;
-    if (tMid <= maxBeamT) {
-      const u = tMid / maxBeamT;
-      taperMid = minTip + (1 - minTip) * Math.pow(Math.sin(Math.PI / 2 * u), sternPower);
-    } else {
-      const u = (1 - tMid) / (1 - maxBeamT);
-      taperMid = minTip + (1 - minTip) * Math.pow(Math.sin(Math.PI / 2 * u), bowPower);
-    }
-    const y0 = depth * taperMid;            // actual keel height at skeg position
+    const zMid = (z0 + z1) / 2;
+    const y0 = boatDepthAt(boat, zMid) - boatRockerAt(boat, zMid);  // keel Y at skeg
     const y1 = y0 + sHeight;               // fin tip
 
     const g = new THREE.BufferGeometry();
@@ -350,25 +328,15 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     g.setIndex([0, 1, 2,  0, 2, 3]);
     g.computeVertexNormals();
     return g;
-  }, [boat.lengthM, depth, sChord, sHeight, sLeadSweep, sTrailSwp, sPosF, maxBeamT, bowPower, sternPower]);
+  }, [boat.lengthM, boat.shape, sChord, sHeight, sLeadSweep, sTrailSwp, sPosF]);
 
-  // Deck: flat tapered panel at y=0, matching the hull gunwale outline.
-  // Uses the same asymmetric taper as buildHullGeometry so the outline aligns exactly.
+  // Deck: flat panel at y=0, tracing the hull gunwale (beam profile) so the two align.
   const deckGeom = useMemo(() => {
-    const N      = 48;
-    const minTip = HULL_MIN_TIP;
+    const N   = 56;
     const pts: THREE.Vector2[] = [];
     for (let i = 0; i <= N; i++) {
-      const t = i / N;
-      let taper: number;
-      if (t <= maxBeamT) {
-        const u = t / maxBeamT;
-        taper = minTip + (1 - minTip) * Math.pow(Math.sin(Math.PI / 2 * u), sternPower);
-      } else {
-        const u = (1 - t) / (1 - maxBeamT);
-        taper = minTip + (1 - minTip) * Math.pow(Math.sin(Math.PI / 2 * u), bowPower);
-      }
-      pts.push(new THREE.Vector2((boat.widthM / 2) * taper, (t - 0.5) * boat.lengthM));
+      const z = (i / N - 0.5) * boat.lengthM;
+      pts.push(new THREE.Vector2(boatHalfWidthAt(boat, z), z));
     }
     const shape = new THREE.Shape();
     const left  = pts.map(p => new THREE.Vector2(-p.x, p.y));
@@ -377,7 +345,7 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     left.forEach(p  => shape.lineTo(p.x, p.y));
     right.forEach(p => shape.lineTo(p.x, p.y));
     return new THREE.ShapeGeometry(shape);
-  }, [boat.lengthM, boat.widthM, bowPower, sternPower, maxBeamT]);
+  }, [boat.lengthM, boat.shape]);
 
   // Seat z-positions â€” used by rigger arm logic (currently hidden, preserved for future feature)
   const sculling = SCULLING_CLASSES.has(boat.boatClass);
@@ -429,7 +397,7 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
           At t=1 (bow) the hull keel sits at y = depth Ã— HULL_MIN_TIP, so that is
           exactly where the apex of the bow tip is. The ball is centred there and
           nudged just past the hull end in Z so it sits flush rather than embedded. */}
-      <mesh position={[0, depth * HULL_MIN_TIP, BOW_Z_LOCAL * (boat.lengthM / 2 + BOW_BALL_R * 0.6)]}>
+      <mesh position={[0, bowKeelY, BOW_Z_LOCAL * (boat.lengthM / 2 + BOW_BALL_R * 0.6)]}>
         <sphereGeometry args={[BOW_BALL_R, 14, 10]} />
         <meshStandardMaterial color="#ffffff" roughness={0.40} metalness={0.05} />
       </mesh>
@@ -460,7 +428,7 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
 
       {/* Name label â€” floats above the keel; dark outline ensures legibility on any hull colour */}
       <Text
-        position={[0, depth + 0.12, 0]}
+        position={[0, midDepth + 0.12, 0]}
         rotation={[0, Math.PI / 2, 0]}
         fontSize={0.11}
         color="#ffffff"

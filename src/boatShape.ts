@@ -43,14 +43,17 @@ export function boatShapeOf(boat: Boat): BoatShape {
   return boat.shape ?? defaultBoatShape(boat.lengthM, boat.widthM, boat.boatClass);
 }
 
-// Linearly interpolate a station-curve at fraction f (0=bow … 1=stern).
+// Smoothly interpolate a station-curve at fraction f (0=bow … 1=stern).
+// Cosine easing between adjacent control points: continuous, never overshoots
+// the control values, so the hull reads as a fair curve rather than blocky facets.
 export function sampleProfile(vals: number[], f: number): number {
   const n = vals.length;
   if (n === 0) return 0;
   const x = Math.max(0, Math.min(1, f)) * (n - 1);
   const i = Math.floor(x);
   if (i >= n - 1) return vals[n - 1];
-  return vals[i] * (1 - (x - i)) + vals[i + 1] * (x - i);
+  const s = (1 - Math.cos(Math.PI * (x - i))) / 2;
+  return vals[i] * (1 - s) + vals[i + 1] * s;
 }
 
 // Convert a longitudinal position z (metres from hull centre, +z = bow) to a
