@@ -285,46 +285,65 @@ const SCULLING_CLASSES = new Set(['1x', '2x', '4x']);
 // inverted). Proportions from real fittings: seat ~31 cm wide with twin
 // sit-bone holes, track centres ~28 cm and ~86 cm long, footplate at ~42°
 // mounted sternward of the slide. `w` = available lateral space at this z.
-function SeatUnit({ z, w, unitLen }: { z: number; w: number; unitLen: number }) {
+// The per-rower stations for a boat: cockpit centre z, available width, and
+// the length of one rower's section. Shared by the deck cut-outs and SeatUnit.
+function seatStations(boat: Boat): { z: number; w: number; unitLen: number }[] {
+  const n = SEAT_COUNT[boat.boatClass] ?? 1;
+  const pitch = n > 1 ? Math.min(1.32, (boat.lengthM * 0.8) / n) : 0;
+  const unitLen = n > 1 ? pitch : Math.min(1.6, boat.lengthM * 0.35);
+  const out: { z: number; w: number; unitLen: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const z = (i - (n - 1) / 2) * pitch;
+    const w = 2 * boatHalfWidthAt(boat, z) * 0.85;
+    if (w >= 0.08) out.push({ z, w, unitLen });
+  }
+  return out;
+}
+
+// Everything is recessed INTO the hull (y >= 0, i.e. inboard of the gunwale
+// plane): seen from below through the deck cut-out, the seat sits nearest the
+// opening, the slide tracks behind it, and the cockpit floor deepest.
+function SeatUnit({ boat, z, w, unitLen }: { boat: Boat; z: number; w: number; unitLen: number }) {
   const trayW   = Math.min(0.34, w);
   const trackX  = Math.min(0.14, trayW * 0.40);
   const seatW   = Math.min(0.31, trayW * 0.90);
   const slideC  = z + unitLen * 0.12;          // slide centred slightly bow-side
   const stretchZ = z - unitLen * 0.30;         // footplate toward the stern
+  const floorY  = Math.min(0.085, boatDepthAt(boat, z) * 0.5);   // cockpit floor depth
   return (
     <group>
-      {/* cockpit tray (dark recess, flush under the deck) */}
-      <mesh position={[0, -0.003, z]}>
-        <boxGeometry args={[trayW, 0.004, unitLen * 0.92]} />
+      {/* cockpit floor (dark, deepest inside the hull) */}
+      <mesh position={[0, floorY, z]}>
+        <boxGeometry args={[trayW + 0.05, 0.004, unitLen * 0.96]} />
         <meshStandardMaterial color="#171a1e" roughness={0.9} />
       </mesh>
-      {/* slide tracks */}
+      {/* slide tracks, mounted just off the floor */}
       {[-trackX, trackX].map((tx) => (
-        <mesh key={tx} position={[tx, -0.013, slideC]}>
+        <mesh key={tx} position={[tx, Math.max(0.02, floorY - 0.012), slideC]}>
           <boxGeometry args={[0.020, 0.014, Math.min(0.86, unitLen * 0.62)]} />
           <meshStandardMaterial color="#b8c0c8" metalness={0.7} roughness={0.35} />
         </mesh>
       ))}
-      {/* seat top with twin sit-bone holes */}
-      <mesh position={[0, -0.031, slideC]}>
+      {/* seat riding the tracks, top just inboard of the gunwale plane */}
+      <mesh position={[0, 0.030, slideC]}>
         <boxGeometry args={[seatW, 0.024, 0.18]} />
         <meshStandardMaterial color="#e8e6de" roughness={0.55} />
       </mesh>
       {[-0.057, 0.057].map((hx) => (
-        <mesh key={hx} position={[hx * (seatW / 0.31), -0.044, slideC - 0.012]} rotation={[Math.PI / 2, 0, 0]}>
+        <mesh key={hx} position={[hx * (seatW / 0.31), 0.016, slideC - 0.012]} rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.024 * (seatW / 0.31), 0.024 * (seatW / 0.31), 0.004, 16]} />
           <meshStandardMaterial color="#20242a" roughness={0.85} />
         </mesh>
       ))}
-      {/* foot stretcher: angled plate + shoes, sternward of the slide */}
-      <group position={[0, -0.028, stretchZ]} rotation={[-THREE.MathUtils.degToRad(42), 0, 0]}>
+      {/* foot stretcher: angled plate + shoes, sternward of the slide, fully inboard */}
+      <group position={[0, Math.max(0.062, floorY - 0.02), stretchZ]} rotation={[-THREE.MathUtils.degToRad(42), 0, 0]}>
         <mesh>
-          <boxGeometry args={[Math.min(0.30, trayW * 0.88), 0.010, 0.17]} />
+          <boxGeometry args={[Math.min(0.30, trayW * 0.88), 0.010, 0.15]} />
           <meshStandardMaterial color="#2a2f36" metalness={0.4} roughness={0.5} />
         </mesh>
         {[-1, 1].map((s) => (
-          <mesh key={s} position={[s * Math.min(0.065, trayW * 0.19), -0.020, 0.01]}>
-            <boxGeometry args={[0.085, 0.030, 0.055]} />
+          <mesh key={s} position={[s * Math.min(0.065, trayW * 0.19), -0.018, 0.01]}>
+            <boxGeometry args={[0.085, 0.028, 0.055]} />
             <meshStandardMaterial color="#111418" roughness={0.8} />
           </mesh>
         ))}
@@ -389,7 +408,9 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     return g;
   }, [boat.lengthM, boat.shape, sChord, sHeight, sLeadSweep, sTrailSwp, sPosF]);
 
-  // Deck: flat panel at y=0, tracing the hull gunwale (beam profile) so the two align.
+  // Deck: flat panel at y=0, tracing the hull gunwale (beam profile) so the two
+  // align — with a cockpit opening cut out per rower so the recessed seat
+  // hardware shows through instead of protruding past the gunwale.
   const deckGeom = useMemo(() => {
     const N   = 56;
     const pts: THREE.Vector2[] = [];
@@ -403,8 +424,19 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     shape.moveTo(left[0].x, left[0].y);
     left.forEach(p  => shape.lineTo(p.x, p.y));
     right.forEach(p => shape.lineTo(p.x, p.y));
+    for (const st of seatStations(boat)) {
+      const hw = Math.min(0.34, st.w) / 2;
+      const hl = st.unitLen * 0.92 / 2;
+      const hole = new THREE.Path();
+      hole.moveTo(-hw, st.z - hl);
+      hole.lineTo(-hw, st.z + hl);
+      hole.lineTo(hw, st.z + hl);
+      hole.lineTo(hw, st.z - hl);
+      hole.closePath();
+      shape.holes.push(hole);
+    }
     return new THREE.ShapeGeometry(shape);
-  }, [boat.lengthM, boat.shape]);
+  }, [boat.lengthM, boat.boatClass, boat.shape]);
 
   // Gunwale stripe: a thin ribbon hugging each side of the hull just above the
   // gunwale plane, following the beam profile (as displayed hull-up, this is
@@ -501,19 +533,11 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
         </mesh>
       )}
 
-      {/* Cockpits: one seat/track/stretcher station per rower, on the deck side
-          (facing down as the boat rides inverted on the racks) */}
-      {(() => {
-        const n = SEAT_COUNT[boat.boatClass] ?? 1;
-        const pitch = n > 1 ? Math.min(1.32, (boat.lengthM * 0.8) / n) : 0;
-        const unitLen = n > 1 ? pitch : Math.min(1.6, boat.lengthM * 0.35);
-        return Array.from({ length: n }, (_, i) => {
-          const z = (i - (n - 1) / 2) * pitch;
-          const w = 2 * boatHalfWidthAt(boat, z) * 0.85;
-          if (w < 0.08) return null;
-          return <SeatUnit key={i} z={z} w={w} unitLen={unitLen} />;
-        });
-      })()}
+      {/* Cockpits: one seat/track/stretcher station per rower, recessed into the
+          hull and visible through the deck cut-outs from below */}
+      {seatStations(boat).map((st, i) => (
+        <SeatUnit key={i} boat={boat} z={st.z} w={st.w} unitLen={st.unitLen} />
+      ))}
 
       {/* Livery: boat name painted on both sides of the bow */}
       {livery.showName && boat.name && (
