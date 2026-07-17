@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { Boat, Trailer, TierDef, TowerGroup, AxleDef, BoatPlacement } from './types';
 import { computeTowerZs, computeTowerXZs, isValidZ, snapZ, footprintsOverlap, boatClearsTowers } from './utils';
 import { defaultBoatShape, resampleCurve, N_STATIONS } from './boatShape';
+import { defaultLivery } from './livery';
 
 function makeId() {
   return Math.random().toString(36).slice(2, 9);
@@ -155,6 +156,7 @@ export const useStore = create<State>()(
           boats: [...s.boats, {
             ...boat, id: makeId(),
             shape: boat.shape ?? defaultBoatShape(boat.lengthM, boat.widthM, boat.boatClass),
+            livery: boat.livery ?? defaultLivery(boat.manufacturer, '#2563eb'),
           }],
         })),
 
@@ -380,7 +382,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'rowing-trailer-planner',
-      version: 7,
+      version: 8,
       migrate: (state: unknown, version: number) => {
         const s = state as { trailer?: Record<string, unknown>; boats?: unknown[]; placements?: unknown[] } | undefined;
         if (!s || !s.trailer) return { trailer: DEFAULT_TRAILER, boats: [], placements: [] };
@@ -396,8 +398,9 @@ export const useStore = create<State>()(
         if (t.trayHeightM == null) t.trayHeightM = DEFAULT_TRAY_HEIGHT;
         // v5→v6: every boat gains a parametric hull shape.
         // v6→v7: shape curves resampled onto the finer 9-station grid.
+        // v7→v8: every boat gains an editable livery (manufacturer default).
         if (Array.isArray(s.boats)) {
-          for (const b of s.boats as { lengthM: number; widthM: number; boatClass: string; shape?: { beam: number[]; depth: number[]; rocker: number[] } }[]) {
+          for (const b of s.boats as { lengthM: number; widthM: number; boatClass: string; manufacturer?: string; shape?: { beam: number[]; depth: number[]; rocker: number[] }; livery?: unknown }[]) {
             if (!b) continue;
             if (b.shape == null) {
               b.shape = defaultBoatShape(b.lengthM, b.widthM, b.boatClass);
@@ -406,6 +409,7 @@ export const useStore = create<State>()(
               b.shape.depth  = resampleCurve(b.shape.depth);
               b.shape.rocker = resampleCurve(b.shape.rocker);
             }
+            if (b.livery == null) b.livery = defaultLivery(b.manufacturer, '#2563eb');
           }
         }
         return s;

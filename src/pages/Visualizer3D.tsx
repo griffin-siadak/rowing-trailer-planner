@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import type { Boat, BoatPlacement, Trailer } from '../types';
 import { computeTowerZs, computeTowerXZs, tierYs, snapZ, boatClearsTowers } from '../utils';
 import { boatHalfWidthAt, boatDepthAt, boatRockerAt } from '../boatShape';
+import { liveryOf } from '../livery';
 
 // â”€â”€ Fallback palette (used when manufacturer is unknown) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BOAT_COLORS = [
@@ -281,10 +282,12 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
   isSelected: boolean; slung?: boolean;
   onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
 }) {
-  // Resolve manufacturer theme; fall back to cycling palette for manually-added boats
+  // Geometry/finish still come from the manufacturer theme; colours + markings
+  // come from the boat's editable livery (which defaults to the maker's scheme).
   const theme = boat.manufacturer ? MANUFACTURER_THEMES[boat.manufacturer] : undefined;
-  const hullColor  = theme?.hull      ?? BOAT_COLORS[colorIndex % BOAT_COLORS.length];
-  const deckColor  = theme?.deck      ?? hullColor;
+  const livery = liveryOf(boat, BOAT_COLORS[colorIndex % BOAT_COLORS.length]);
+  const hullColor  = livery.hullColor;
+  const deckColor  = livery.deckColor;
   const roughness  = theme?.roughness ?? 0.50;
   const metalness  = theme?.metalness ?? 0.10;
   const vShape     = theme?.vShape    ?? 1.0;
@@ -347,6 +350,40 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     return new THREE.ShapeGeometry(shape);
   }, [boat.lengthM, boat.shape]);
 
+  // Gunwale stripe: a thin ribbon hugging each side of the hull just above the
+  // gunwale plane, following the beam profile (as displayed hull-up, this is
+  // the classic stripe painted "just below the gunwale" on the water).
+  const gunwaleStripeGeom = useMemo(() => {
+    const h = livery.gunwaleStripeM;
+    if (h <= 0) return null;
+    const L = boat.lengthM, N = 48, off = 0.004;
+    const pos: number[] = [];
+    const idx: number[] = [];
+    for (const side of [-1, 1]) {
+      const base = pos.length / 3;
+      for (let i = 0; i <= N; i++) {
+        const z = (i / N - 0.5) * L;
+        const hw = boatHalfWidthAt(boat, z) + off;
+        pos.push(side * hw, 0.002, z, side * hw, h, z);
+      }
+      for (let i = 0; i < N; i++) {
+        const a = base + i * 2;
+        idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }, [boat.lengthM, boat.shape, livery.gunwaleStripeM]);
+
+  // Name decal placement: on both sides of the bow, centred namePosM aft of
+  // the bow tip, sitting within the hull side just above the gunwale plane.
+  const nameZ  = BOW_Z_LOCAL * (boat.lengthM / 2 - livery.namePosM);
+  const nameHW = boatHalfWidthAt(boat, nameZ) + 0.006;
+  const nameY  = Math.max(livery.nameHeightM * 0.7, livery.gunwaleStripeM + livery.nameHeightM * 0.7);
+
   // Seat z-positions â€” used by rigger arm logic (currently hidden, preserved for future feature)
   const sculling = SCULLING_CLASSES.has(boat.boatClass);
   const showN    = CREW_DISPLAY[boat.boatClass] ?? 1;
@@ -392,6 +429,37 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
           roughness={Math.min(roughness + 0.05, 1)} side={THREE.DoubleSide}
         />
       </mesh>
+
+      {/* Livery: gunwale stripe ribbons following the hull sides */}
+      {gunwaleStripeGeom && (
+        <mesh geometry={gunwaleStripeGeom}>
+          <meshStandardMaterial color={livery.stripeColor} roughness={roughness} metalness={metalness} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+
+      {/* Livery: spine stripe along the deck centreline (deck faces down when trailered) */}
+      {livery.spineStripeM > 0 && (
+        <mesh position={[0, -0.002, 0]}>
+          <boxGeometry args={[livery.spineStripeM, 0.003, boat.lengthM * 0.92]} />
+          <meshStandardMaterial color={livery.stripeColor} roughness={roughness} metalness={metalness} />
+        </mesh>
+      )}
+
+      {/* Livery: boat name painted on both sides of the bow */}
+      {livery.showName && boat.name && (
+        <>
+          <Text position={[nameHW, nameY, nameZ]} rotation={[0, Math.PI / 2, 0]}
+            fontSize={livery.nameHeightM} color={livery.nameColor}
+            anchorX="center" anchorY="middle" maxWidth={boat.lengthM * 0.3}>
+            {boat.name}
+          </Text>
+          <Text position={[-nameHW, nameY, nameZ]} rotation={[0, -Math.PI / 2, 0]}
+            fontSize={livery.nameHeightM} color={livery.nameColor}
+            anchorX="center" anchorY="middle" maxWidth={boat.lengthM * 0.3}>
+            {boat.name}
+          </Text>
+        </>
+      )}
 
       {/* Bow ball â€” white safety sphere pressed against the tongue-facing bow tip.
           At t=1 (bow) the hull keel sits at y = depth Ã— HULL_MIN_TIP, so that is

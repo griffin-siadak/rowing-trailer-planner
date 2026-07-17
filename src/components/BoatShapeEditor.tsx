@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { boatShapeOf, STATIONS, maxBeamOf, sampleProfile } from '../boatShape';
-import type { BoatShape } from '../types';
+import { liveryOf } from '../livery';
+import type { BoatShape, BoatLivery } from '../types';
 
 const M_TO_IN = 39.3701;
 const inch = (m: number) => `${(m * M_TO_IN).toFixed(1)}"`;
@@ -89,6 +90,11 @@ export default function BoatShapeEditor({ boatId, onClose }: { boatId: string; o
 
   if (!boat) return null;
   const shape = boatShapeOf(boat);
+  const livery = liveryOf(boat);
+
+  function setLivery(patch: Partial<BoatLivery>) {
+    updateBoat(boat!.id, { livery: { ...livery, ...patch } });
+  }
 
   function commit(patch: Partial<BoatShape>) {
     const next = { ...shape, ...patch };
@@ -285,6 +291,54 @@ export default function BoatShapeEditor({ boatId, onClose }: { boatId: string; o
         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
           Rigging width and load are stored for reference — boats travel de-rigged, so only the hull
           profile affects trailer packing. Waterline/draft/freeboard are on-water outputs and aren't tracked.
+        </div>
+
+        {/* Appearance / livery */}
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '16px 0 6px' }}>
+          Appearance (3D view)
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+          {([['Hull', 'hullColor'], ['Deck', 'deckColor'], ['Stripe', 'stripeColor'], ['Name', 'nameColor']] as const).map(([label2, key]) => (
+            <label key={key} style={{ flex: '1 1 100px', ...lbl }}>
+              {label2} colour
+              <input type="color" value={livery[key]}
+                onChange={(e) => setLivery({ [key]: e.target.value })}
+                style={{ ...num, padding: 2, height: 36, cursor: 'pointer' }} />
+            </label>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+          <label style={{ flex: '1 1 130px', ...lbl }}>
+            Gunwale stripe (in, 0 = off)
+            <input type="number" step="0.25" min={0} style={num}
+              value={(livery.gunwaleStripeM * M_TO_IN).toFixed(2)}
+              onChange={(e) => setLivery({ gunwaleStripeM: Math.max(0, Number(e.target.value)) / M_TO_IN })} />
+          </label>
+          <label style={{ flex: '1 1 130px', ...lbl }}>
+            Spine stripe (in, 0 = off)
+            <input type="number" step="0.25" min={0} style={num}
+              value={(livery.spineStripeM * M_TO_IN).toFixed(2)}
+              onChange={(e) => setLivery({ spineStripeM: Math.max(0, Number(e.target.value)) / M_TO_IN })} />
+          </label>
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', cursor: 'pointer', flex: '1 1 150px', paddingBottom: 8 }}>
+            <input type="checkbox" checked={livery.showName}
+              onChange={(e) => setLivery({ showName: e.target.checked })} />
+            Name on bow
+          </label>
+          <label style={{ flex: '1 1 130px', ...lbl }}>
+            Name pos (in from bow)
+            <input type="number" step="1" min={0} style={num}
+              value={(livery.namePosM * M_TO_IN).toFixed(1)}
+              onChange={(e) => setLivery({ namePosM: Math.max(0.1, Math.min(boat.lengthM - 0.1, Number(e.target.value) / M_TO_IN)) })} />
+          </label>
+          <label style={{ flex: '1 1 130px', ...lbl }}>
+            Name height (in)
+            <input type="number" step="0.25" min={0.5} style={num}
+              value={(livery.nameHeightM * M_TO_IN).toFixed(2)}
+              onChange={(e) => setLivery({ nameHeightM: Math.max(0.012, Math.min(0.15, Number(e.target.value) / M_TO_IN)) })} />
+          </label>
         </div>
       </div>
     </div>

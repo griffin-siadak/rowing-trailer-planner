@@ -11,6 +11,20 @@ export interface BoatShape {
   pitchSternDeg: number;   // oarlock stern pitch — metadata, does not affect packing
 }
 
+// Paint scheme + markings, editable per boat. Defaults derive from the
+// manufacturer's real-world colours.
+export interface BoatLivery {
+  hullColor: string;
+  deckColor: string;
+  stripeColor: string;
+  gunwaleStripeM: number;  // stripe height just below the gunwale (m); 0 = none
+  spineStripeM: number;    // stripe width along the deck spine (m); 0 = none
+  showName: boolean;       // paint the boat's name on both sides of the bow
+  namePosM: number;        // decal centre, metres aft of the bow tip
+  nameHeightM: number;     // decal text height (m)
+  nameColor: string;
+}
+
 export interface Boat {
   id: string;
   name: string;
@@ -21,6 +35,7 @@ export interface Boat {
   weightKg: number;  // hull weight — what the trailer actually carries
   guest?: boolean;   // true = visiting/guest boat, undefined/false = home/club boat
   shape?: BoatShape;
+  livery?: BoatLivery;
 }
 
 export interface BoatPlacement {
