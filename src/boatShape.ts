@@ -1,8 +1,14 @@
 import type { Boat, BoatShape } from './types';
 
 // Longitudinal station fractions, bow (0) → stern (1). Curves store one value each.
-export const STATIONS = [0, 0.25, 0.5, 0.75, 1] as const;
+export const STATIONS = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1] as const;
 export const N_STATIONS = STATIONS.length;
+
+// Resample a curve stored at a different station count onto the current STATIONS.
+export function resampleCurve(vals: number[], n = N_STATIONS): number[] {
+  if (vals.length === n) return vals;
+  return Array.from({ length: n }, (_, i) => +sampleProfile(vals, i / (n - 1)).toFixed(4));
+}
 
 export function sweepOrScull(boatClass: string): 'sweep' | 'scull' {
   return /[x]/i.test(boatClass) ? 'scull' : 'sweep';
@@ -39,8 +45,11 @@ export function defaultBoatShape(_lengthM: number, widthM: number, boatClass: st
 }
 
 // A boat's shape, computing a default on the fly if none is stored.
+// Curves saved at an older station count are resampled onto the current STATIONS.
 export function boatShapeOf(boat: Boat): BoatShape {
-  return boat.shape ?? defaultBoatShape(boat.lengthM, boat.widthM, boat.boatClass);
+  const s = boat.shape ?? defaultBoatShape(boat.lengthM, boat.widthM, boat.boatClass);
+  if (s.beam.length === N_STATIONS && s.depth.length === N_STATIONS && s.rocker.length === N_STATIONS) return s;
+  return { ...s, beam: resampleCurve(s.beam), depth: resampleCurve(s.depth), rocker: resampleCurve(s.rocker) };
 }
 
 // Smoothly interpolate a station-curve at fraction f (0=bow … 1=stern).
