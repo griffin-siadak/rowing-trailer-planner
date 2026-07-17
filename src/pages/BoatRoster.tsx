@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore, BOAT_CLASSES } from '../store';
 import type { Boat } from '../types';
 import ShellPicker from '../components/ShellPicker';
+import BoatShapeEditor from '../components/BoatShapeEditor';
 import type { ShellRecord } from '../shellDatabase';
 
 const S = {
@@ -41,6 +42,7 @@ export default function BoatRoster() {
   const { boats, addBoat, updateBoat, removeBoat } = useStore();
   const [form, setForm] = useState(emptyForm());
   const [editId, setEditId] = useState<string | null>(null);
+  const [shapeId, setShapeId] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
   function addFromDB(shell: ShellRecord, name: string) {
@@ -137,6 +139,12 @@ export default function BoatRoster() {
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 8 }}>
                       <button
+                        onClick={() => setShapeId(boat.id)}
+                        style={{ background: 'none', border: '1px solid #93c5fd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 13, color: '#1d4ed8' }}
+                      >
+                        Shape
+                      </button>
+                      <button
                         onClick={() => startEdit(boat)}
                         style={{ background: 'none', border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 13 }}
                       >
@@ -163,6 +171,9 @@ export default function BoatRoster() {
     <div style={S.page}>
       {showPicker && (
         <ShellPicker onAdd={addFromDB} onClose={() => setShowPicker(false)} />
+      )}
+      {shapeId && (
+        <BoatShapeEditor boatId={shapeId} onClose={() => setShapeId(null)} />
       )}
 
       {/* Database shortcut */}
