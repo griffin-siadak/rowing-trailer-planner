@@ -275,7 +275,63 @@ function Rail({ from, to, r = 0.025, color = '#6b7280' }: {
 const CREW_DISPLAY: Record<string, number> = {
   '1x':1, '2x':2, '2-':2, '4x':4, '4-':4, '4+':4, '8+':4,
 };
+// True seat counts per class — one cockpit assembly is rendered per rower.
+const SEAT_COUNT: Record<string, number> = {
+  '1x':1, '2x':2, '2-':2, '4x':4, '4-':4, '4+':4, '8+':8,
+};
 const SCULLING_CLASSES = new Set(['1x', '2x', '4x']);
+
+// One rower's station, visible on the deck side (downward when the boat rides
+// inverted). Proportions from real fittings: seat ~31 cm wide with twin
+// sit-bone holes, track centres ~28 cm and ~86 cm long, footplate at ~42°
+// mounted sternward of the slide. `w` = available lateral space at this z.
+function SeatUnit({ z, w, unitLen }: { z: number; w: number; unitLen: number }) {
+  const trayW   = Math.min(0.34, w);
+  const trackX  = Math.min(0.14, trayW * 0.40);
+  const seatW   = Math.min(0.31, trayW * 0.90);
+  const slideC  = z + unitLen * 0.12;          // slide centred slightly bow-side
+  const stretchZ = z - unitLen * 0.30;         // footplate toward the stern
+  return (
+    <group>
+      {/* cockpit tray (dark recess, flush under the deck) */}
+      <mesh position={[0, -0.003, z]}>
+        <boxGeometry args={[trayW, 0.004, unitLen * 0.92]} />
+        <meshStandardMaterial color="#171a1e" roughness={0.9} />
+      </mesh>
+      {/* slide tracks */}
+      {[-trackX, trackX].map((tx) => (
+        <mesh key={tx} position={[tx, -0.013, slideC]}>
+          <boxGeometry args={[0.020, 0.014, Math.min(0.86, unitLen * 0.62)]} />
+          <meshStandardMaterial color="#b8c0c8" metalness={0.7} roughness={0.35} />
+        </mesh>
+      ))}
+      {/* seat top with twin sit-bone holes */}
+      <mesh position={[0, -0.031, slideC]}>
+        <boxGeometry args={[seatW, 0.024, 0.18]} />
+        <meshStandardMaterial color="#e8e6de" roughness={0.55} />
+      </mesh>
+      {[-0.057, 0.057].map((hx) => (
+        <mesh key={hx} position={[hx * (seatW / 0.31), -0.044, slideC - 0.012]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.024 * (seatW / 0.31), 0.024 * (seatW / 0.31), 0.004, 16]} />
+          <meshStandardMaterial color="#20242a" roughness={0.85} />
+        </mesh>
+      ))}
+      {/* foot stretcher: angled plate + shoes, sternward of the slide */}
+      <group position={[0, -0.028, stretchZ]} rotation={[-THREE.MathUtils.degToRad(42), 0, 0]}>
+        <mesh>
+          <boxGeometry args={[Math.min(0.30, trayW * 0.88), 0.010, 0.17]} />
+          <meshStandardMaterial color="#2a2f36" metalness={0.4} roughness={0.5} />
+        </mesh>
+        {[-1, 1].map((s) => (
+          <mesh key={s} position={[s * Math.min(0.065, trayW * 0.19), -0.020, 0.01]}>
+            <boxGeometry args={[0.085, 0.030, 0.055]} />
+            <meshStandardMaterial color="#111418" roughness={0.8} />
+          </mesh>
+        ))}
+      </group>
+    </group>
+  );
+}
 
 function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, onPointerDown }: {
   boat: Boat; posX: number; posY: number; posZ?: number; colorIndex: number;
@@ -444,6 +500,20 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
           <meshStandardMaterial color={livery.stripeColor} roughness={roughness} metalness={metalness} />
         </mesh>
       )}
+
+      {/* Cockpits: one seat/track/stretcher station per rower, on the deck side
+          (facing down as the boat rides inverted on the racks) */}
+      {(() => {
+        const n = SEAT_COUNT[boat.boatClass] ?? 1;
+        const pitch = n > 1 ? Math.min(1.32, (boat.lengthM * 0.8) / n) : 0;
+        const unitLen = n > 1 ? pitch : Math.min(1.6, boat.lengthM * 0.35);
+        return Array.from({ length: n }, (_, i) => {
+          const z = (i - (n - 1) / 2) * pitch;
+          const w = 2 * boatHalfWidthAt(boat, z) * 0.85;
+          if (w < 0.08) return null;
+          return <SeatUnit key={i} z={z} w={w} unitLen={unitLen} />;
+        });
+      })()}
 
       {/* Livery: boat name painted on both sides of the bow */}
       {livery.showName && boat.name && (
