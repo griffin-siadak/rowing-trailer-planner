@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Boat, Trailer, TierDef, TowerGroup, AxleDef, BoatPlacement } from './types';
 import { computeTowerZs, computeTowerXZs, isValidZ, snapZ, footprintsOverlap, boatClearsTowers } from './utils';
+import { defaultBoatShape } from './boatShape';
 
 function makeId() {
   return Math.random().toString(36).slice(2, 9);
@@ -150,7 +151,12 @@ export const useStore = create<State>()(
         set((s) => ({ trailer: { ...s.trailer, ...patch } })),
 
       addBoat: (boat) =>
-        set((s) => ({ boats: [...s.boats, { ...boat, id: makeId() }] })),
+        set((s) => ({
+          boats: [...s.boats, {
+            ...boat, id: makeId(),
+            shape: boat.shape ?? defaultBoatShape(boat.lengthM, boat.widthM, boat.boatClass),
+          }],
+        })),
 
       updateBoat: (id, patch) =>
         set((s) => ({ boats: s.boats.map(b => b.id === id ? { ...b, ...patch } : b) })),
@@ -374,7 +380,7 @@ export const useStore = create<State>()(
     }),
     {
       name: 'rowing-trailer-planner',
-      version: 5,
+      version: 6,
       migrate: (state: unknown, version: number) => {
         const s = state as { trailer?: Record<string, unknown>; boats?: unknown[]; placements?: unknown[] } | undefined;
         if (!s || !s.trailer) return { trailer: DEFAULT_TRAILER, boats: [], placements: [] };
@@ -388,6 +394,12 @@ export const useStore = create<State>()(
         }
         // v4→v5: tray height became an independent field.
         if (t.trayHeightM == null) t.trayHeightM = DEFAULT_TRAY_HEIGHT;
+        // v5→v6: every boat gains a parametric hull shape.
+        if (Array.isArray(s.boats)) {
+          for (const b of s.boats as { lengthM: number; widthM: number; boatClass: string; shape?: unknown }[]) {
+            if (b && b.shape == null) b.shape = defaultBoatShape(b.lengthM, b.widthM, b.boatClass);
+          }
+        }
         return s;
       },
     }

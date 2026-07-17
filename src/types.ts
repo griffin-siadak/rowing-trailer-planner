@@ -1,12 +1,26 @@
+// Parametric hull shape. Curves are control-point values at fixed stations
+// running bow (index 0) → stern (last), see STATIONS in boatShape.ts.
+export interface BoatShape {
+  beam: number[];          // half-beam (m) at each station — the plan-view outline
+  depth: number[];         // hull depth (m, sheer→keel) at each station
+  rocker: number[];        // keel rise (m) above its lowest point at each station
+  riggingWidthM: number;   // rigger span/spread (m); stored — riggers travel de-rigged so unused in packing
+  boatType: 'sweep' | 'scull';
+  loadKg: number;          // crew + equipment load (on-water; not carried on the trailer)
+  pitchLateralDeg: number; // oarlock lateral pitch — metadata, does not affect packing
+  pitchSternDeg: number;   // oarlock stern pitch — metadata, does not affect packing
+}
+
 export interface Boat {
   id: string;
   name: string;
   manufacturer?: string;
   boatClass: string;
-  lengthM: number;
-  widthM: number;
-  weightKg: number;
+  lengthM: number;   // LOA (length overall)
+  widthM: number;    // max beam (kept in sync with 2 × max(shape.beam))
+  weightKg: number;  // hull weight — what the trailer actually carries
   guest?: boolean;   // true = visiting/guest boat, undefined/false = home/club boat
+  shape?: BoatShape;
 }
 
 export interface BoatPlacement {
