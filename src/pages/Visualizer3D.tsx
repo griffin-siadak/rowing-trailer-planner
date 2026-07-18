@@ -1123,6 +1123,9 @@ function Controls({ maxDist, enabled }: { maxDist: number; enabled: boolean }) {
       minDistance={0.5}
       maxDistance={maxDist * 2}
       zoomToCursor
+      enableDamping
+      dampingFactor={0.14}
+      maxPolarAngle={Math.PI * 0.52}
     />
   );
 }
@@ -1148,6 +1151,7 @@ function Scene() {
     previewX: number;
     previewZ: number;
     previewTier: number;
+    planeY: number;   // drag-capture plane height = where the boat was grabbed
   }
   const [drag, setDrag] = useState<DragState | null>(null);
 
@@ -1181,6 +1185,7 @@ function Scene() {
       previewX: placement.xM,
       previewZ: placement.zCenterM,
       previewTier: placement.tier,
+      planeY: e.point.y,
     });
   }
 
@@ -1197,6 +1202,7 @@ function Scene() {
       previewX: 0,
       previewZ: 0,
       previewTier: 0,
+      planeY: e.point.y,
     });
   }
 
@@ -1336,10 +1342,11 @@ function Scene() {
           );
         })()}
 
-        {/* Invisible drag-capture plane at ground level — absorbs pointer move/up while dragging */}
+        {/* Invisible drag-capture plane at the height the boat was grabbed —
+            keeps the boat glued to the cursor from any camera angle */}
         {drag && (
           <mesh
-            position={[0, 0.01, 0]}
+            position={[0, drag.planeY, 0]}
             rotation={[-Math.PI / 2, 0, 0]}
             onPointerMove={onDragMove}
             onPointerUp={onDragEnd}
