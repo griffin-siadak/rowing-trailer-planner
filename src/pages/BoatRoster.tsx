@@ -3,7 +3,9 @@ import { useStore, BOAT_CLASSES } from '../store';
 import type { Boat } from '../types';
 import ShellPicker from '../components/ShellPicker';
 import BoatShapeEditor from '../components/BoatShapeEditor';
+import { estimateWidthM, crewLoadKg } from '../shellDatabase';
 import type { ShellRecord } from '../shellDatabase';
+import { defaultBoatShape } from '../boatShape';
 
 const S = {
   page: { padding: 16, overflowY: 'auto' as const, flex: 1 },
@@ -46,13 +48,19 @@ export default function BoatRoster() {
   const [showPicker, setShowPicker] = useState(false);
 
   function addFromDB(shell: ShellRecord, name: string) {
+    // "2x/2-" → "2x" etc. so packing rules (large / slingable classes) match
+    const cls = shell.boatClass.match(/\d+[x+-]/)?.[0] ?? shell.boatClass;
+    const widthM = estimateWidthM(shell);  // real beam, or estimated from class + crew weight
+    const shape = defaultBoatShape(shell.lengthM, widthM, cls);
+    shape.loadKg = crewLoadKg(shell);      // on-water load from the shell's crew rating
     addBoat({
       name,
       manufacturer: shell.manufacturer,
-      boatClass: shell.boatClass,
+      boatClass: cls,
       lengthM:   shell.lengthM,
-      widthM:    shell.widthM  ?? (BOAT_CLASSES[shell.boatClass]?.widthM  ?? 0.30),
-      weightKg:  shell.hullWeightKg ?? (BOAT_CLASSES[shell.boatClass]?.weightKg ?? 20),
+      widthM,
+      weightKg:  shell.hullWeightKg ?? (BOAT_CLASSES[cls]?.weightKg ?? 20),
+      shape,
       guest:     form.guest,
     });
   }

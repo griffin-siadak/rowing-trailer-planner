@@ -16,22 +16,50 @@ export interface ShellRecord {
 
 // Parsed from rowing_shells_export.csv — manufacturer_spec rows only (historical_reference excluded)
 export const SHELL_DB: ShellRecord[] = [
-  { id:1,  manufacturer:"Filippi",                    modelName:"F01",                                      boatClass:"1x",                    category:"racing",       lengthM:8.10,  widthM:0.266, hullWeightKg:null, crewMinKg:85,  crewMaxKg:95,  material:"Carbon/Kevlar/honeycomb/aluminium", notes:"Heavyweight hull, straight bottom line.", dataConfidence:"manufacturer_spec" },
-  { id:2,  manufacturer:"Filippi",                    modelName:"F14",                                      boatClass:"1x",                    category:"racing",       lengthM:8.33,  widthM:0.290, hullWeightKg:null, crewMinKg:85,  crewMaxKg:100, material:"Carbon/Kevlar/titanium/honeycomb", notes:"Top-range heavyweight hull, U cross-section.", dataConfidence:"manufacturer_spec" },
-  { id:3,  manufacturer:"Filippi",                    modelName:"F15",                                      boatClass:"1x",                    category:"racing",       lengthM:7.77,  widthM:0.280, hullWeightKg:null, crewMinKg:65,  crewMaxKg:75,  material:"Carbon/Kevlar/honeycomb", notes:"Lightweight hull, U cross-section similar to F45.", dataConfidence:"manufacturer_spec" },
-  { id:4,  manufacturer:"Filippi",                    modelName:"F22",                                      boatClass:"1x",                    category:"racing",       lengthM:8.00,  widthM:0.290, hullWeightKg:null, crewMinKg:75,  crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Round cross-section, popular U23 boat.", dataConfidence:"manufacturer_spec" },
-  { id:5,  manufacturer:"Filippi",                    modelName:"F44",                                      boatClass:"1x",                    category:"racing",       lengthM:7.40,  widthM:0.260, hullWeightKg:null, crewMinKg:50,  crewMaxKg:60,  material:"Carbon/Kevlar/honeycomb", notes:"Flyweight women's hull, banana-shaped keel.", dataConfidence:"manufacturer_spec" },
-  { id:6,  manufacturer:"Filippi",                    modelName:"F45",                                      boatClass:"1x",                    category:"racing",       lengthM:7.86,  widthM:0.280, hullWeightKg:null, crewMinKg:70,  crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Banana keel line, longer bow for powerful rowers.", dataConfidence:"manufacturer_spec" },
-  { id:7,  manufacturer:"Filippi",                    modelName:"F7",                                       boatClass:"1x",                    category:"racing",       lengthM:7.96,  widthM:0.295, hullWeightKg:null, crewMinKg:70,  crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"U-shaped, flatter, more forgiving hull.", dataConfidence:"manufacturer_spec" },
-  { id:8,  manufacturer:"Filippi",  modelName:"F13",                    boatClass:"2x",  category:"racing", lengthM:10.01, widthM:0.385, hullWeightKg:null, crewMinKg:85,  crewMaxKg:105, material:"Carbon/Kevlar/titanium/honeycomb/aluminium", notes:"Top-range elite double scull.", dataConfidence:"manufacturer_spec" },
-  { id:165, manufacturer:"Filippi", modelName:"F12",                   boatClass:"2x",  category:"racing", lengthM:9.88,  widthM:0.380, hullWeightKg:null, crewMinKg:70,  crewMaxKg:90,  material:"Carbon/Kevlar/honeycomb", notes:"Standard double scull, wider bow than F13.", dataConfidence:"manufacturer_spec" },
-  { id:166, manufacturer:"Filippi", modelName:"F5",                    boatClass:"2-",  category:"racing", lengthM:10.40, widthM:0.355, hullWeightKg:null, crewMinKg:70,  crewMaxKg:95,  material:"Carbon/Kevlar/honeycomb", notes:"Coxless pair, narrow beam.", dataConfidence:"manufacturer_spec" },
-  { id:167, manufacturer:"Filippi", modelName:"F39",                   boatClass:"4x",  category:"racing", lengthM:13.50, widthM:0.595, hullWeightKg:null, crewMinKg:70,  crewMaxKg:95,  material:"Carbon/Kevlar/titanium/honeycomb", notes:"Flagship quad scull.", dataConfidence:"manufacturer_spec" },
-  { id:168, manufacturer:"Filippi", modelName:"F38",                   boatClass:"4x",  category:"racing", lengthM:13.40, widthM:0.590, hullWeightKg:null, crewMinKg:65,  crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Standard quad scull.", dataConfidence:"manufacturer_spec" },
-  { id:169, manufacturer:"Filippi", modelName:"F30",                   boatClass:"4-",  category:"racing", lengthM:13.40, widthM:0.590, hullWeightKg:null, crewMinKg:70,  crewMaxKg:95,  material:"Carbon/Kevlar/honeycomb", notes:"Coxless four.", dataConfidence:"manufacturer_spec" },
-  { id:170, manufacturer:"Filippi", modelName:"F32",                   boatClass:"4+",  category:"racing", lengthM:13.70, widthM:0.595, hullWeightKg:null, crewMinKg:65,  crewMaxKg:90,  material:"Carbon/Kevlar/honeycomb", notes:"Coxed four, slightly longer than 4- for cox seat.", dataConfidence:"manufacturer_spec" },
-  { id:171, manufacturer:"Filippi", modelName:"F25",                   boatClass:"8+",  category:"racing", lengthM:17.50, widthM:0.600, hullWeightKg:null, crewMinKg:75,  crewMaxKg:100, material:"Carbon/Kevlar/titanium/honeycomb/aluminium", notes:"Flagship eight, used at Olympic and World Championship level.", dataConfidence:"manufacturer_spec" },
-  { id:172, manufacturer:"Filippi", modelName:"F24",                   boatClass:"8+",  category:"racing", lengthM:17.40, widthM:0.600, hullWeightKg:null, crewMinKg:70,  crewMaxKg:95,  material:"Carbon/Kevlar/honeycomb", notes:"Standard eight hull.", dataConfidence:"manufacturer_spec" },
+  // ── Filippi ──────────────────────────────────────────────────────────────────
+  // Source: official Filippi Formtabelle 2020 (mould table via ruderwerkstatt.de) —
+  // length ü.A. (LOA), größte Breite (max beam), Mannschaftsgewicht (crew kg range).
+  // Hull weights: FISA class minimums (all Filippi boats built to minimum weight).
+  // Singles
+  { id:5,   manufacturer:"Filippi", modelName:"F44 (1x)", boatClass:"1x", category:"racing", lengthM:7.40, widthM:0.260, hullWeightKg:14, crewMinKg:50,  crewMaxKg:60,  material:"Carbon/Kevlar/honeycomb", notes:"Flyweight women's hull, banana-shaped keel. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:3,   manufacturer:"Filippi", modelName:"F15 (1x)", boatClass:"1x", category:"racing", lengthM:7.77, widthM:0.280, hullWeightKg:14, crewMinKg:65,  crewMaxKg:75,  material:"Carbon/Kevlar/honeycomb", notes:"Lightweight hull, U cross-section similar to F45. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:6,   manufacturer:"Filippi", modelName:"F45 (1x)", boatClass:"1x", category:"racing", lengthM:7.86, widthM:0.280, hullWeightKg:14, crewMinKg:70,  crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Banana keel line, longer bow for powerful rowers. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:7,   manufacturer:"Filippi", modelName:"F07 (1x)", boatClass:"1x", category:"racing", lengthM:7.96, widthM:0.295, hullWeightKg:14, crewMinKg:70,  crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"U-shaped, flatter, more forgiving hull. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:4,   manufacturer:"Filippi", modelName:"F22 (1x)", boatClass:"1x", category:"racing", lengthM:8.00, widthM:0.290, hullWeightKg:14, crewMinKg:75,  crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Round cross-section, popular U23 boat. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:296, manufacturer:"Filippi", modelName:"F50 (1x)", boatClass:"1x", category:"racing", lengthM:8.04, widthM:0.270, hullWeightKg:14, crewMinKg:65,  crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Wide crew-range hull. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:1,   manufacturer:"Filippi", modelName:"F01 (1x)", boatClass:"1x", category:"racing", lengthM:8.10, widthM:0.266, hullWeightKg:14, crewMinKg:85,  crewMaxKg:95,  material:"Carbon/Kevlar/honeycomb/aluminium", notes:"Heavyweight hull, straight bottom line. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:2,   manufacturer:"Filippi", modelName:"F14 (1x)", boatClass:"1x", category:"racing", lengthM:8.33, widthM:0.290, hullWeightKg:14, crewMinKg:85,  crewMaxKg:100, material:"Carbon/Kevlar/titanium/honeycomb", notes:"Top-range heavyweight hull, U cross-section. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:297, manufacturer:"Filippi", modelName:"F47 (1x)", boatClass:"1x", category:"racing", lengthM:8.33, widthM:0.286, hullWeightKg:14, crewMinKg:90,  crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:298, manufacturer:"Filippi", modelName:"F39 (1x)", boatClass:"1x", category:"racing", lengthM:8.44, widthM:0.295, hullWeightKg:14, crewMinKg:95,  crewMaxKg:110, material:"Carbon/Kevlar/honeycomb", notes:"Super-heavyweight single. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  // Doubles / pairs (shared moulds)
+  { id:8,   manufacturer:"Filippi", modelName:"F13 (2x/2-)", boatClass:"2x/2-", category:"racing", lengthM:9.40,  widthM:0.330, hullWeightKg:27, crewMinKg:65, crewMaxKg:75,  material:"Carbon/Kevlar/honeycomb", notes:"Lightweight double/pair. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:299, manufacturer:"Filippi", modelName:"F46 (2x/2-)", boatClass:"2x/2-", category:"racing", lengthM:9.56,  widthM:0.340, hullWeightKg:27, crewMinKg:75, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:300, manufacturer:"Filippi", modelName:"F30 (2x/2-)", boatClass:"2x/2-", category:"racing", lengthM:9.60,  widthM:0.362, hullWeightKg:27, crewMinKg:75, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:301, manufacturer:"Filippi", modelName:"F36 (2x)",    boatClass:"2x",    category:"racing", lengthM:9.00,  widthM:0.420, hullWeightKg:27, crewMinKg:50, crewMaxKg:65,  material:"Carbon/Kevlar/honeycomb", notes:"Junior/flyweight double, extra beam for stability. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:302, manufacturer:"Filippi", modelName:"F17 (2x/2-)", boatClass:"2x/2-", category:"racing", lengthM:10.00, widthM:0.372, hullWeightKg:27, crewMinKg:85, crewMaxKg:105, material:"Carbon/Kevlar/honeycomb", notes:"Heavyweight double/pair. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:165, manufacturer:"Filippi", modelName:"F24 (2x/2-)", boatClass:"2x/2-", category:"racing", lengthM:10.01, widthM:0.385, hullWeightKg:27, crewMinKg:85, crewMaxKg:105, material:"Carbon/Kevlar/titanium/honeycomb", notes:"Top-range heavyweight double/pair. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:303, manufacturer:"Filippi", modelName:"F51 (2x/2-)", boatClass:"2x/2-", category:"racing", lengthM:10.14, widthM:0.397, hullWeightKg:27, crewMinKg:85, crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Newest heavyweight double/pair mould. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:166, manufacturer:"Filippi", modelName:"F12 (2+)",    boatClass:"2+",    category:"racing", lengthM:10.10, widthM:0.400, hullWeightKg:32, crewMinKg:80, crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Coxed pair. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  // Quads / coxless fours (shared moulds)
+  { id:167, manufacturer:"Filippi", modelName:"F11 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:11.78, widthM:0.403, hullWeightKg:50, crewMinKg:55, crewMaxKg:75,  material:"Carbon/Kevlar/honeycomb", notes:"Lightweight quad/four. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:304, manufacturer:"Filippi", modelName:"F43 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:11.78, widthM:0.403, hullWeightKg:50, crewMinKg:60, crewMaxKg:75,  material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:305, manufacturer:"Filippi", modelName:"F34 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:11.70, widthM:0.480, hullWeightKg:50, crewMinKg:60, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Wide stable hull, also available as 4+. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:306, manufacturer:"Filippi", modelName:"F52 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:11.89, widthM:0.422, hullWeightKg:50, crewMinKg:70, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:307, manufacturer:"Filippi", modelName:"F31 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:12.10, widthM:0.443, hullWeightKg:50, crewMinKg:70, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:169, manufacturer:"Filippi", modelName:"F28 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:12.66, widthM:0.435, hullWeightKg:50, crewMinKg:75, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:168, manufacturer:"Filippi", modelName:"F38 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:12.80, widthM:0.447, hullWeightKg:50, crewMinKg:85, crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Heavyweight quad/four. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:308, manufacturer:"Filippi", modelName:"F25 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:12.72, widthM:0.438, hullWeightKg:50, crewMinKg:85, crewMaxKg:100, material:"Carbon/Kevlar/titanium/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:309, manufacturer:"Filippi", modelName:"F40 (4x/4-)", boatClass:"4x/4-", category:"racing", lengthM:12.72, widthM:0.438, hullWeightKg:50, crewMinKg:85, crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:310, manufacturer:"Filippi", modelName:"F19 (4x/4-/4+)", boatClass:"4x/4-", category:"racing", lengthM:12.81, widthM:0.444, hullWeightKg:50, crewMinKg:85, crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Also offered coxed (4+). Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:311, manufacturer:"Filippi", modelName:"F20 (4-)",    boatClass:"4-",    category:"racing", lengthM:12.86, widthM:0.480, hullWeightKg:50, crewMinKg:85, crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Longest four mould. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:170, manufacturer:"Filippi", modelName:"F19 (4+)",    boatClass:"4+",    category:"racing", lengthM:12.81, widthM:0.444, hullWeightKg:51, crewMinKg:85, crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Coxed four on the F19 mould. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:312, manufacturer:"Filippi", modelName:"F34 (4+)",    boatClass:"4+",    category:"racing", lengthM:11.70, widthM:0.480, hullWeightKg:51, crewMinKg:60, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Coxed four on the wide F34 mould. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  // Eights
+  { id:313, manufacturer:"Filippi", modelName:"F09 (8+)", boatClass:"8+", category:"racing", lengthM:16.50, widthM:0.580, hullWeightKg:96, crewMinKg:60, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Lightweight eight. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:314, manufacturer:"Filippi", modelName:"F42 (8+)", boatClass:"8+", category:"racing", lengthM:16.80, widthM:0.590, hullWeightKg:96, crewMinKg:60, crewMaxKg:85,  material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:315, manufacturer:"Filippi", modelName:"F49 (8+)", boatClass:"8+", category:"racing", lengthM:17.44, widthM:0.544, hullWeightKg:96, crewMinKg:85, crewMaxKg:100, material:"Carbon/Kevlar/honeycomb", notes:"Narrow-beam heavyweight eight. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:172, manufacturer:"Filippi", modelName:"F41 (8+)", boatClass:"8+", category:"racing", lengthM:17.63, widthM:0.600, hullWeightKg:96, crewMinKg:85, crewMaxKg:105, material:"Carbon/Kevlar/honeycomb", notes:"Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
+  { id:171, manufacturer:"Filippi", modelName:"F29 (8+)", boatClass:"8+", category:"racing", lengthM:17.72, widthM:0.600, hullWeightKg:96, crewMinKg:85, crewMaxKg:105, material:"Carbon/Kevlar/titanium/honeycomb/aluminium", notes:"Flagship heavyweight eight. Formtabelle 2020.", dataConfidence:"manufacturer_spec" },
   { id:9,  manufacturer:"WinTech Racing",             modelName:"Filter SLW 55 (1x)",                       boatClass:"1x",                    category:"racing",       lengthM:6.965, widthM:null,  hullWeightKg:14,   crewMinKg:50,  crewMaxKg:60,  material:"Carbon (Cobra/Competitor)", notes:"~14kg across grades.", dataConfidence:"manufacturer_spec" },
   { id:10, manufacturer:"WinTech Racing",             modelName:"Filter LW 70 (1x)",                        boatClass:"1x",                    category:"racing",       lengthM:7.90,  widthM:null,  hullWeightKg:14,   crewMinKg:60,  crewMaxKg:75,  material:"Carbon (Cobra/Competitor)", notes:"", dataConfidence:"manufacturer_spec" },
   { id:11, manufacturer:"WinTech Racing",             modelName:"Filter MW 80 (1x)",                        boatClass:"1x",                    category:"racing",       lengthM:7.905, widthM:null,  hullWeightKg:14,   crewMinKg:75,  crewMaxKg:85,  material:"Carbon (Cobra/Competitor)", notes:"", dataConfidence:"manufacturer_spec" },
@@ -508,4 +536,48 @@ export function filterByCrewWeight(shells: ShellRecord[], avgCrewWeightKg: numbe
     const max = s.crewMaxKg ?? 999;
     return avgCrewWeightKg >= min && avgCrewWeightKg <= max;
   });
+}
+
+// Rowing seats implied by a class string ("4x/4-" → 4, "8+" → 8, "coastal 2x" → 2).
+export function seatsOf(boatClass: string): number {
+  const m = boatClass.match(/(\d)/);
+  return m ? Number(m[1]) : 1;
+}
+
+// Max-beam estimate (m) for shells whose maker doesn't publish beam.
+// Anchored on real published beams (Filippi Formtabelle, Empacher, Pocock):
+// beam scales with seat count and, within a class, with per-seat crew weight.
+// [beam at ≤55 kg/seat, beam at ≥105 kg/seat] per seat count:
+const BEAM_RANGE: Record<number, [number, number]> = {
+  1: [0.260, 0.296],
+  2: [0.330, 0.397],
+  4: [0.403, 0.480],
+  6: [0.500, 0.560],
+  8: [0.544, 0.600],
+};
+
+export function estimateWidthM(shell: ShellRecord): number {
+  if (shell.widthM != null) return shell.widthM;
+  const seats = seatsOf(shell.boatClass);
+  // Coastal / adaptive hulls are far wider than flat-water shells
+  if (/coastal/i.test(shell.boatClass) || shell.category === 'coastal') {
+    return seats >= 4 ? 1.30 : seats === 2 ? 1.00 : 0.75;
+  }
+  if (/adaptive|PR[12]/i.test(shell.boatClass) || shell.category === 'adaptive') {
+    return seats === 2 ? 0.515 : 0.51;
+  }
+  const [lo, hi] = BEAM_RANGE[seats] ?? BEAM_RANGE[1];
+  const avg = shell.crewMinKg != null && shell.crewMaxKg != null
+    ? (shell.crewMinKg + shell.crewMaxKg) / 2
+    : (shell.crewMinKg ?? shell.crewMaxKg ?? 80);
+  const t = Math.max(0, Math.min(1, (avg - 55) / 50));  // 55…105 kg/seat → 0…1
+  return +(lo + (hi - lo) * t).toFixed(3);
+}
+
+// Total on-water crew load (kg) implied by a shell's crew-weight rating.
+export function crewLoadKg(shell: ShellRecord): number {
+  const avg = shell.crewMinKg != null && shell.crewMaxKg != null
+    ? (shell.crewMinKg + shell.crewMaxKg) / 2
+    : (shell.crewMinKg ?? shell.crewMaxKg ?? 80);
+  return Math.round(avg * seatsOf(shell.boatClass));
 }

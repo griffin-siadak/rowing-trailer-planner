@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { MANUFACTURERS, getModels, filterByCrewWeight } from '../shellDatabase';
+import { MANUFACTURERS, getModels, filterByCrewWeight, estimateWidthM } from '../shellDatabase';
 import type { ShellRecord } from '../shellDatabase';
 
 interface Props {
@@ -176,7 +176,9 @@ export default function ShellPicker({ onAdd, onClose }: Props) {
                       <div style={{ fontSize: 11, color: '#64748b' }}>
                         <span style={S.chip(CAT_COLORS[shell.category] ?? '#64748b')}>{shell.category}</span>
                         {shell.lengthM}m
-                        {shell.widthM ? ` · ${(shell.widthM * 100).toFixed(1)}cm wide` : ''}
+                        {shell.widthM
+                          ? ` · ${(shell.widthM * 100).toFixed(1)}cm wide`
+                          : ` · ~${(estimateWidthM(shell) * 100).toFixed(0)}cm wide (est.)`}
                         {shell.hullWeightKg ? ` · ${shell.hullWeightKg}kg hull` : ''}
                       </div>
                       {(shell.crewMinKg || shell.crewMaxKg) && (
