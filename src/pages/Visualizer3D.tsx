@@ -484,25 +484,46 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     return new THREE.ShapeGeometry(shape);
   }, [boat.lengthM, boat.boatClass, boat.shape]);
 
-  // Gunwale stripe: a thin ribbon hugging each side of the hull just above the
-  // gunwale plane, following the beam profile (as displayed hull-up, this is
-  // the classic stripe painted "just below the gunwale" on the water).
+  // Gunwale stripe: a thin ribbon painted ON the hull surface just above the
+  // gunwale plane. The parabolic cross-section narrows as it rises toward the
+  // keel, so each row of stripe vertices sits at the hull's actual half-width
+  // for its height (solved from y(p) = d·p^vShape − rk·p) instead of extruding
+  // straight up from the sheerline.
   const gunwaleStripeGeom = useMemo(() => {
     const h = livery.gunwaleStripeM;
     if (h <= 0) return null;
-    const L = boat.lengthM, N = 48, off = 0.004;
+    const L = boat.lengthM, N = 48, ROWS = 3, off = 0.004;
+    // Hull surface |x| at height y above the gunwale plane for section (hb,d,rk)
+    const surfHW = (hb: number, d: number, rk: number, y: number) => {
+      if (y <= 0) return hb;
+      if (d - rk <= y) return 0;                    // section shallower than y
+      let lo = 0, hi = 1;                            // bisect y(p) = y on p∈[0,1]
+      for (let k = 0; k < 24; k++) {
+        const p = (lo + hi) / 2;
+        (d * Math.pow(p, vShape) - rk * p < y) ? lo = p : hi = p;
+      }
+      return hb * Math.sqrt(1 - (lo + hi) / 2);
+    };
     const pos: number[] = [];
     const idx: number[] = [];
     for (const side of [-1, 1]) {
       const base = pos.length / 3;
       for (let i = 0; i <= N; i++) {
-        const z = (i / N - 0.5) * L;
-        const hw = boatHalfWidthAt(boat, z) + off;
-        pos.push(side * hw, 0.002, z, side * hw, h, z);
+        const z  = (i / N - 0.5) * L;
+        const hb = boatHalfWidthAt(boat, z);
+        const d  = boatDepthAt(boat, z);
+        const rk = boatRockerAt(boat, z);
+        for (let r = 0; r < ROWS; r++) {
+          const y = 0.002 + (h - 0.002) * (r / (ROWS - 1));
+          pos.push(side * (surfHW(hb, d, rk, y) + off), y, z);
+        }
       }
       for (let i = 0; i < N; i++) {
-        const a = base + i * 2;
-        idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+        for (let r = 0; r < ROWS - 1; r++) {
+          const a = base + i * ROWS + r;
+          const b = a + ROWS;
+          idx.push(a, b, a + 1, a + 1, b, b + 1);
+        }
       }
     }
     const g = new THREE.BufferGeometry();
@@ -510,7 +531,26 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     g.setIndex(idx);
     g.computeVertexNormals();
     return g;
-  }, [boat.lengthM, boat.shape, livery.gunwaleStripeM]);
+  }, [boat.lengthM, boat.shape, livery.gunwaleStripeM, vShape]);
+
+  // Spine stripe segments: the deck-centreline stripe broken at each cockpit
+  // opening so paint never crosses the seat cut-outs. Same z-extents as the
+  // deck holes.
+  const spineSegs = useMemo(() => {
+    if (livery.spineStripeM <= 0) return [];
+    const half = boat.lengthM * 0.46;
+    const cuts = seatStations(boat)
+      .map(st => [st.z - st.unitLen * 0.92 / 2, st.z + st.unitLen * 0.92 / 2] as const)
+      .sort((a, b) => a[0] - b[0]);
+    const segs: [number, number][] = [];
+    let z0 = -half;
+    for (const [c0, c1] of cuts) {
+      if (c0 > z0) segs.push([z0, Math.min(c0, half)]);
+      z0 = Math.max(z0, c1);
+    }
+    if (z0 < half) segs.push([z0, half]);
+    return segs.filter(([a, b]) => b - a > 0.02);
+  }, [boat.lengthM, boat.boatClass, boat.shape, livery.spineStripeM]);
 
   // Name decal placement: on both sides of the bow, centred namePosM aft of
   // the bow tip, sitting within the hull side just above the gunwale plane.
@@ -571,13 +611,14 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
         </mesh>
       )}
 
-      {/* Livery: spine stripe along the deck centreline (deck faces down when trailered) */}
-      {livery.spineStripeM > 0 && (
-        <mesh position={[0, -0.002, 0]}>
-          <boxGeometry args={[livery.spineStripeM, 0.003, boat.lengthM * 0.92]} />
+      {/* Livery: spine stripe along the deck centreline, broken at the cockpit
+          openings (deck faces down when trailered) */}
+      {spineSegs.map(([z0, z1], i) => (
+        <mesh key={`spine-${i}`} position={[0, -0.002, (z0 + z1) / 2]}>
+          <boxGeometry args={[livery.spineStripeM, 0.003, z1 - z0]} />
           <meshStandardMaterial color={livery.stripeColor} roughness={roughness} metalness={metalness} />
         </mesh>
-      )}
+      ))}
 
       {/* Cockpits: one seat/track/stretcher station per rower, recessed into the
           hull and visible through the deck cut-outs from below */}
