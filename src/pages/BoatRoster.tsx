@@ -3,7 +3,7 @@ import { useStore, BOAT_CLASSES } from '../store';
 import type { Boat } from '../types';
 import ShellPicker from '../components/ShellPicker';
 import BoatShapeEditor from '../components/BoatShapeEditor';
-import { estimateWidthM, crewLoadKg } from '../shellDatabase';
+import { SHELL_DB, MANUFACTURERS, estimateWidthM, crewLoadKg } from '../shellDatabase';
 import type { ShellRecord } from '../shellDatabase';
 import { defaultBoatShape } from '../boatShape';
 
@@ -41,11 +41,52 @@ function emptyForm() {
 }
 
 export default function BoatRoster() {
-  const { boats, addBoat, updateBoat, removeBoat } = useStore();
+  const { boats, addBoat, updateBoat, removeBoat, clearAll } = useStore();
   const [form, setForm] = useState(emptyForm());
   const [editId, setEditId] = useState<string | null>(null);
   const [shapeId, setShapeId] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+
+  // Boat generator (moved from the old Testing tab)
+  const [genOpen, setGenOpen] = useState(false);
+  const [genCount, setGenCount] = useState(10);
+  const [genCls, setGenCls] = useState<string>('any');
+  const [genMaker, setGenMaker] = useState<string>('any');
+  const [genOdd, setGenOdd] = useState(false);
+  const [genMsg, setGenMsg] = useState('');
+
+  function generate() {
+    const n = Math.max(1, Math.min(100, Math.round(genCount)));
+    const pool = SHELL_DB.filter(s =>
+      s.lengthM
+      && (genOdd || s.category === 'racing')                                             // exclude touring/coastal/etc unless asked
+      && (genMaker === 'any' || s.manufacturer === genMaker)                             // manufacturer filter
+      && (genCls === 'any' || s.boatClass.split('/').map(x => x.trim()).includes(genCls)) // class filter
+    );
+    if (pool.length === 0) {
+      setGenMsg('No boats match those filters — try Any class/manufacturer or include odd-size boats.');
+      return;
+    }
+    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    for (let i = 0; i < n; i++) {
+      const s = shuffled[i % shuffled.length];
+      const cls = genCls !== 'any' ? genCls
+        : (s.boatClass.match(/\d+[x+-]/)?.[0] ?? s.boatClass);
+      const widthM = estimateWidthM(s);
+      const shape = defaultBoatShape(s.lengthM, widthM, cls);
+      shape.loadKg = crewLoadKg(s);
+      addBoat({
+        name: `${s.manufacturer} ${s.modelName}`,
+        manufacturer: s.manufacturer,
+        boatClass: cls,
+        lengthM: s.lengthM,
+        widthM,
+        weightKg: s.hullWeightKg ?? (BOAT_CLASSES[cls]?.weightKg ?? 50),
+        shape,
+      });
+    }
+    setGenMsg(`Added ${n} boat${n === 1 ? '' : 's'}.`);
+  }
 
   function addFromDB(shell: ShellRecord, name: string) {
     // "2x/2-" → "2x" etc. so packing rules (large / slingable classes) match
@@ -183,6 +224,80 @@ export default function BoatRoster() {
       {shapeId && (
         <BoatShapeEditor boatId={shapeId} onClose={() => setShapeId(null)} />
       )}
+
+      {/* Boat generator (from the old Testing tab) */}
+      <div style={{ ...S.card, padding: genOpen ? 16 : 0, overflow: 'hidden' }}>
+        <button
+          onClick={() => setGenOpen(o => !o)}
+          style={{
+            width: '100%', padding: '12px 16px', background: 'white', border: 'none',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+            fontWeight: 700, fontSize: 14, color: '#1e293b',
+            margin: genOpen ? '-16px -16px 12px' : 0,
+            boxSizing: 'content-box' as const,
+          }}
+        >
+          <span>🧪</span> Boat Generator
+          <span style={{ marginLeft: 'auto', color: '#94a3b8', fontSize: 12 }}>
+            {boats.length} in fleet · {genOpen ? '▲' : '▼'}
+          </span>
+        </button>
+
+        {genOpen && (
+          <>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+              <div style={{ flex: '1 1 100px' }}>
+                <label style={S.label}>Amount</label>
+                <input style={S.input} type="number" min={1} max={100}
+                  value={genCount}
+                  onChange={(e) => setGenCount(Number(e.target.value))} />
+              </div>
+              <div style={{ flex: '1 1 110px' }}>
+                <label style={S.label}>Boat class</label>
+                <select style={S.input} value={genCls} onChange={(e) => setGenCls(e.target.value)}>
+                  <option value="any">Any class</option>
+                  {CLASS_ORDER.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 200px' }}>
+                <label style={S.label}>Manufacturer</label>
+                <select style={S.input} value={genMaker} onChange={(e) => setGenMaker(e.target.value)}>
+                  <option value="any">Any manufacturer</option>
+                  {MANUFACTURERS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontSize: 14, color: '#475569', cursor: 'pointer' }}>
+              <input type="checkbox" checked={genOdd} onChange={(e) => setGenOdd(e.target.checked)} />
+              Include odd-size boats (touring, coastal, recreational, adaptive)
+            </label>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={generate}
+                style={{
+                  flex: 1, padding: '11px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  fontWeight: 700, fontSize: 15, background: '#1d4ed8', color: 'white',
+                }}>
+                Generate {Math.max(1, Math.min(100, Math.round(genCount) || 1))} {genCls === 'any' ? '' : genCls + ' '}boat{genCount === 1 ? '' : 's'}
+              </button>
+              <button
+                onClick={() => { if (window.confirm('Remove all boats and clear the layout?')) { clearAll(); setGenMsg(''); } }}
+                disabled={boats.length === 0}
+                style={{
+                  padding: '11px 14px', borderRadius: 8, cursor: boats.length ? 'pointer' : 'not-allowed',
+                  fontWeight: 600, fontSize: 14, background: 'white',
+                  border: '1px solid #fca5a5', color: boats.length ? '#b91c1c' : '#fca5a5',
+                }}>
+                Clear all
+              </button>
+            </div>
+            {genMsg && (
+              <div style={{ marginTop: 8, fontSize: 13, color: genMsg.startsWith('No') ? '#b91c1c' : '#16a34a' }}>{genMsg}</div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Database shortcut */}
       <button

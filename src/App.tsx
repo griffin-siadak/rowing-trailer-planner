@@ -3,16 +3,14 @@ import TrailerEditor from './pages/TrailerEditor';
 import BoatRoster from './pages/BoatRoster';
 import Layout from './pages/Layout';
 import Visualizer3D from './pages/Visualizer3D';
-import Testing from './pages/Testing';
 
-type Tab = 'layout' | 'boats' | 'trailer' | '3d' | 'testing';
+type Tab = 'layout' | 'boats' | 'trailer' | '3d';
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'layout', label: 'Layout', icon: '🚣' },
   { id: 'boats', label: 'Boats', icon: '⛵' },
   { id: '3d', label: '3D View', icon: '🧊' },
   { id: 'trailer', label: 'Trailer', icon: '🚛' },
-  { id: 'testing', label: 'Testing', icon: '🧪' },
 ];
 
 export default function App() {
@@ -30,7 +28,6 @@ export default function App() {
         {tab === 'boats'   && <BoatRoster />}
         {tab === '3d'      && <Visualizer3D />}
         {tab === 'trailer' && <TrailerEditor />}
-        {tab === 'testing' && <Testing />}
       </main>
 
       <nav style={{ background: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', flexShrink: 0 }}>
