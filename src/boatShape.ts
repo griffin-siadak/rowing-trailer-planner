@@ -53,16 +53,37 @@ export function boatShapeOf(boat: Boat): BoatShape {
 }
 
 // Smoothly interpolate a station-curve at fraction f (0=bow … 1=stern).
-// Cosine easing between adjacent control points: continuous, never overshoots
-// the control values, so the hull reads as a fair curve rather than blocky facets.
+// Monotone cubic Hermite (Fritsch–Carlson): passes exactly through the control
+// points with continuous, non-zero tangents — no plateau at each station like
+// cosine easing had — while never overshooting the control values, so hull
+// half-widths can't dip negative at the tips.
 export function sampleProfile(vals: number[], f: number): number {
   const n = vals.length;
   if (n === 0) return 0;
+  if (n === 1) return vals[0];
   const x = Math.max(0, Math.min(1, f)) * (n - 1);
-  const i = Math.floor(x);
-  if (i >= n - 1) return vals[n - 1];
-  const s = (1 - Math.cos(Math.PI * (x - i))) / 2;
-  return vals[i] * (1 - s) + vals[i + 1] * s;
+  const i = Math.min(n - 2, Math.floor(x));
+  const t = x - i;
+
+  // Secant slopes (station spacing = 1 in index space)
+  const d  = (k: number) => vals[k + 1] - vals[k];
+  // Fritsch–Carlson tangent at point k: 0 at local extrema, otherwise a
+  // harmonic-style mean of the neighbouring secants clamped for monotonicity.
+  const tangent = (k: number): number => {
+    const dPrev = k > 0     ? d(k - 1) : d(k);
+    const dNext = k < n - 1 ? d(k)     : d(k - 1);
+    if (dPrev * dNext <= 0) return 0;                 // local extremum → flat crest
+    const m = (dPrev + dNext) / 2;
+    // Clamp to 3× either secant so the segment stays monotone (no overshoot)
+    const lim = 3 * Math.min(Math.abs(dPrev), Math.abs(dNext));
+    return Math.sign(m) * Math.min(Math.abs(m), lim);
+  };
+
+  const y0 = vals[i], y1 = vals[i + 1];
+  const m0 = tangent(i), m1 = tangent(i + 1);
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * m0
+       + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * m1;
 }
 
 // Convert a longitudinal position z (metres from hull centre, +z = bow) to a
