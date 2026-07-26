@@ -435,8 +435,11 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     const L  = boat.lengthM;
     const z0 = -L / 2 + sPosF * L;         // trailing edge at keel (stern side)
     const z1 = z0 + sChord;                 // leading edge at keel (bow side)
-    const z2 = z1 - sTrailSwp;             // leading edge tip (swept toward stern)
-    const z3 = z0 + sLeadSweep;            // trailing edge tip (raked slightly toward bow)
+    // Classic fin: the leading edge (bow side) rakes AFT going out to the tip,
+    // presenting its sloped face to the bow; the trailing edge narrows only
+    // slightly. (These were swapped before, tilting fins toward the bow.)
+    const z2 = z1 - sLeadSweep;            // leading edge tip, swept toward the stern
+    const z3 = z0 + sTrailSwp;             // trailing edge tip, narrowing the tip chord
 
     const zMid = (z0 + z1) / 2;
     const y0 = boatDepthAt(boat, zMid) - boatRockerAt(boat, zMid);  // keel Y at skeg
