@@ -429,30 +429,39 @@ function ShellMesh({ boat, posX, posY, posZ = 0, colorIndex, isSelected, slung, 
     [boat.lengthM, boat.shape, vShape]
   );
 
-  // Skeg geometry â€” flat trapezoidal plate (DoubleSide) on the keel near the stern.
-  // Seat the fin against the real keel Y (depth − rocker) at the skeg position.
+  // Skeg geometry — flat plate (DoubleSide) on the keel near the stern, shaped
+  // like a real racing fin: the tip chord hangs directly over the TRAILING
+  // edge, so the whole sweep lives in the leading edge — a long gently-convex
+  // ramp facing the bow — while the trailing edge stands near-vertical with a
+  // whisper of aft rake. (Reference: swept surf-style fin, leading edge = bow.)
   const skegGeom = useMemo(() => {
     const L  = boat.lengthM;
-    const z0 = -L / 2 + sPosF * L;         // trailing edge at keel (stern side)
-    const z1 = z0 + sChord;                 // leading edge at keel (bow side)
-    // Classic fin: the leading edge (bow side) rakes AFT going out to the tip,
-    // presenting its sloped face to the bow; the trailing edge narrows only
-    // slightly. (These were swapped before, tilting fins toward the bow.)
-    const z2 = z1 - sLeadSweep;            // leading edge tip, swept toward the stern
-    const z3 = z0 + sTrailSwp;             // trailing edge tip, narrowing the tip chord
+    const z0 = -L / 2 + sPosF * L;                  // trailing edge root (stern side)
+    const z1 = z0 + sChord;                          // leading edge root (bow side)
+    // Tip chord: whatever the two sweep allowances leave of the root chord,
+    // never thinner than a quarter of it.
+    const tipChord = Math.max(sChord - sLeadSweep - sTrailSwp, sChord * 0.25);
+    const z3 = z0 - sHeight * 0.10;                 // trailing tip — slight aft rake
+    const z2 = z3 + tipChord;                       // leading tip, aft of the root's front
 
     const zMid = (z0 + z1) / 2;
     const y0 = boatDepthAt(boat, zMid) - boatRockerAt(boat, zMid);  // keel Y at skeg
-    const y1 = y0 + sHeight;               // fin tip
+    const h  = sHeight * 1.6;                       // slender-fin proportion vs config
+    const y1 = y0 + h;                              // fin tip
+
+    // Slightly convex leading edge: bow-ward bulge at mid-height
+    const zM = (z1 + z2) / 2 + (z1 - z2) * 0.10;
+    const yM = y0 + h * 0.52;
 
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute([
       0, y0, z0,   // 0: trailing root
       0, y0, z1,   // 1: leading root
-      0, y1, z2,   // 2: leading tip
-      0, y1, z3,   // 3: trailing tip
+      0, yM, zM,   // 2: leading edge mid bulge
+      0, y1, z2,   // 3: leading tip
+      0, y1, z3,   // 4: trailing tip
     ], 3));
-    g.setIndex([0, 1, 2,  0, 2, 3]);
+    g.setIndex([0, 1, 2,  0, 2, 3,  0, 3, 4]);
     g.computeVertexNormals();
     return g;
   }, [boat.lengthM, boat.shape, sChord, sHeight, sLeadSweep, sTrailSwp, sPosF]);
