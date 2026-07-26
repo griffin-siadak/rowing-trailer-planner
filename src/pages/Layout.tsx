@@ -497,6 +497,28 @@ export default function Layout() {
                     />
                   );
                 })}
+                {/* Tower posts pass through every tier below the top — draw them
+                    to scale so it's clear what boats must steer around */}
+                {t > 0 && trailer.towerGroups.map(g =>
+                  g.postXs.map((px, j) => {
+                    const w  = g.postWidthM;
+                    const sx = cx + halfW - px;               // lateral → svg x
+                    const sy = zToSvgY(g.zPosM, halfLen, overhang);
+                    return (
+                      <g key={`${g.id}-${j}`}>
+                        <rect
+                          x={sx - w / 2} y={sy - w / 2} width={w} height={w}
+                          fill="#334155" stroke="#0f172a" strokeWidth={0.015}
+                          rx={0.015}
+                        />
+                        {/* soft halo showing the clearance boats keep from a post */}
+                        <circle cx={sx} cy={sy} r={w / 2 + 0.06}
+                          fill="none" stroke="#334155" strokeWidth={0.012}
+                          strokeDasharray="0.05 0.05" opacity={0.55} />
+                      </g>
+                    );
+                  })
+                )}
                 {/* Bow limit line on the lowest 2 tiers */}
                 {t >= tierCount - 2 && (() => {
                   const limY = zToSvgY(bowFrontLimit, halfLen, overhang);
