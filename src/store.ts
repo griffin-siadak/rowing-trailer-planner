@@ -72,11 +72,16 @@ function buildTrailer(opts: {
   };
 }
 
-const DEFAULT_TRAILER: Trailer = buildTrailer({
-  bedLengthM: 10.97, trailerWidthM: 2.44, tongueLengthM: 2.0,
-  tierCount: 4,
-  groups: Array.from({ length: 4 }, () => ({ postXs: legacyPostXs(2, 0, 2.44) })),
-});
+// Fresh default trailer (new ids each call, so resetting never aliases state)
+function makeDefaultTrailer(): Trailer {
+  return buildTrailer({
+    bedLengthM: 10.97, trailerWidthM: 2.44, tongueLengthM: 2.0,
+    tierCount: 4,
+    groups: Array.from({ length: 4 }, () => ({ postXs: legacyPostXs(2, 0, 2.44) })),
+  });
+}
+
+const DEFAULT_TRAILER: Trailer = makeDefaultTrailer();
 
 // Convert a legacy (v≤3) uniform trailer into the explicit v4 model.
 function legacyToTrailer(old: {
@@ -115,6 +120,7 @@ interface State {
   placements: BoatPlacement[];
 
   updateTrailer: (patch: Partial<Trailer>) => void;
+  resetTrailer: () => void;
   addBoat: (boat: Omit<Boat, 'id'>) => void;
   updateBoat: (id: string, patch: Partial<Boat>) => void;
   removeBoat: (id: string) => void;
@@ -150,6 +156,10 @@ export const useStore = create<State>()(
 
       updateTrailer: (patch) =>
         set((s) => ({ trailer: { ...s.trailer, ...patch } })),
+
+      // Back to factory settings; placements are cleared since the old
+      // tier/tower geometry they were packed against no longer exists.
+      resetTrailer: () => set({ trailer: makeDefaultTrailer(), placements: [] }),
 
       addBoat: (boat) =>
         set((s) => ({

@@ -550,7 +550,10 @@ export default function TrailerEditor() {
   const {
     trailer, updateTrailer, updateTowerGroup, updateAxle,
     addTier, removeTier, addTowerGroup, removeTowerGroup, addAxle, removeAxle, clearPlacements,
+    resetTrailer,
   } = useStore();
+  // Two-step inline confirm (window.confirm is unreliable in embedded browsers)
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const wheelTrack = trailer.axles[0]?.trackWidthM ?? 2.89;
   const setTrack = (w: number) =>
@@ -582,6 +585,24 @@ export default function TrailerEditor() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={panelTitle}>Structure</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <button
+              onClick={() => {
+                if (!confirmReset) {
+                  setConfirmReset(true);
+                  setTimeout(() => setConfirmReset(false), 4000);
+                } else {
+                  resetTrailer();
+                  setConfirmReset(false);
+                }
+              }}
+              style={{
+                padding: '3px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer', marginRight: 8,
+                fontWeight: confirmReset ? 700 : 600,
+                border: '1px solid #fca5a5',
+                background: confirmReset ? '#dc2626' : 'white',
+                color: confirmReset ? 'white' : '#b91c1c',
+              }}
+            >{confirmReset ? 'Really reset trailer?' : '↺ Reset trailer'}</button>
             <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>Units</span>
             {(['in', 'mm'] as const).map(u => (
               <button key={u} onClick={() => setUnit(u)}
