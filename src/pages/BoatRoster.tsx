@@ -49,6 +49,7 @@ export default function BoatRoster() {
 
   // Boat generator (moved from the old Testing tab)
   const [genOpen, setGenOpen] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [genCount, setGenCount] = useState(10);
   const [genCls, setGenCls] = useState<string>('any');
   const [genMaker, setGenMaker] = useState<string>('any');
@@ -282,14 +283,25 @@ export default function BoatRoster() {
                 Generate {Math.max(1, Math.min(100, Math.round(genCount) || 1))} {genCls === 'any' ? '' : genCls + ' '}boat{genCount === 1 ? '' : 's'}
               </button>
               <button
-                onClick={() => { if (window.confirm('Remove all boats and clear the layout?')) { clearAll(); setGenMsg(''); } }}
+                onClick={() => {
+                  if (!confirmClear) {
+                    setConfirmClear(true);
+                    setTimeout(() => setConfirmClear(false), 4000);
+                  } else {
+                    clearAll();
+                    setGenMsg('');
+                    setConfirmClear(false);
+                  }
+                }}
                 disabled={boats.length === 0}
                 style={{
                   padding: '11px 14px', borderRadius: 8, cursor: boats.length ? 'pointer' : 'not-allowed',
-                  fontWeight: 600, fontSize: 14, background: 'white',
-                  border: '1px solid #fca5a5', color: boats.length ? '#b91c1c' : '#fca5a5',
+                  fontWeight: confirmClear ? 700 : 600, fontSize: 14,
+                  background: confirmClear ? '#dc2626' : 'white',
+                  border: '1px solid #fca5a5',
+                  color: confirmClear ? 'white' : (boats.length ? '#b91c1c' : '#fca5a5'),
                 }}>
-                Clear all
+                {confirmClear ? 'Really clear?' : 'Clear all'}
               </button>
             </div>
             {genMsg && (

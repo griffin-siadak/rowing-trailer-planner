@@ -252,6 +252,9 @@ export default function Layout() {
   const [drag, setDrag] = useState<DragState | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [mobilePanel, setMobilePanel] = useState<'end' | 'boathouse' | null>(null);
+  // Two-step inline confirm for Clear All (window.confirm is silently dismissed
+  // in some embedded browsers, which made the button appear dead)
+  const [confirmClear, setConfirmClear] = useState(false);
 
   function printLayout() {
     const svg = svgRef.current;
@@ -384,9 +387,21 @@ export default function Layout() {
         <button onClick={autoLayout} style={btnPrimary}>✨ Auto-Arrange</button>
         <button onClick={clearPlacements} style={{ ...btnSecondary, color: '#64748b', borderColor: '#cbd5e1' }}>Clear Layout</button>
         <button
-          onClick={() => { if (window.confirm('Remove all boats and clear layout?')) clearAll(); }}
-          style={{ ...btnSecondary, color: '#b91c1c', borderColor: '#fca5a5' }}
-        >Clear All</button>
+          onClick={() => {
+            if (!confirmClear) {
+              setConfirmClear(true);
+              setTimeout(() => setConfirmClear(false), 4000);  // disarm if not confirmed
+            } else {
+              clearAll();
+              setConfirmClear(false);
+            }
+          }}
+          style={{
+            ...btnSecondary, color: confirmClear ? 'white' : '#b91c1c',
+            borderColor: '#fca5a5', background: confirmClear ? '#dc2626' : undefined,
+            fontWeight: confirmClear ? 700 : undefined,
+          }}
+        >{confirmClear ? 'Really remove all boats?' : 'Clear All'}</button>
         <button onClick={printLayout} style={{ ...btnSecondary, color: '#0f766e', borderColor: '#99f6e4' }}>🖨 Print</button>
       </div>
 
