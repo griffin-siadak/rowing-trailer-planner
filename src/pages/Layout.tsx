@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useStore } from '../store';
 import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers, withinOverhang } from '../utils';
+import TipsCard from '../components/TipsCard';
 import { boatHalfWidthAt } from '../boatShape';
 import type { Boat } from '../types';
 
@@ -404,6 +405,18 @@ export default function Layout() {
           }}
         >{confirmClear ? 'Really remove all boats?' : 'Clear All'}</button>
         <button onClick={printLayout} style={{ ...btnSecondary, color: '#0f766e', borderColor: '#99f6e4' }}>🖨 Print</button>
+      </div>
+
+      <div style={{ padding: '8px 16px 0', flexShrink: 0 }}>
+        <TipsCard id="layout" title="How the Layout tab works" tips={[
+          'Each column is a top-down view of one rack tier — Top is the highest level of the trailer.',
+          'Open the Boathouse drawer (bottom right) and tap a boat, then click a tier column to place it. Drag placed boats to slide them along the trailer or into another column to change tiers.',
+          'Dashed cross-lines are the tower frames. On tiers below the top, the dark squares are the tower posts — boats must fit between them, and fine bow/stern sections can slip past where a wide midsection cannot.',
+          'The red dashed line on the lowest two tiers is the bow limit: bows there may not reach past half the tongue.',
+          'Boats may overhang each end by at most 20% of their length.',
+          '✨ Auto-Arrange packs the whole boathouse automatically — eights go to the top tier first, heaviest boats sit over the axles.',
+          'End views (drawer, bottom left) show the load from the front and rear. 🖨 Print makes a paper loading sheet.',
+        ]} />
       </div>
 
       {pendingBoatId && (

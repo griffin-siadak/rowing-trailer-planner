@@ -6,6 +6,7 @@ import BoatShapeEditor from '../components/BoatShapeEditor';
 import { SHELL_DB, MANUFACTURERS, estimateWidthM, crewLoadKg } from '../shellDatabase';
 import type { ShellRecord } from '../shellDatabase';
 import { defaultBoatShape } from '../boatShape';
+import TipsCard from '../components/TipsCard';
 
 const S = {
   page: { padding: 16, overflowY: 'auto' as const, flex: 1 },
@@ -225,6 +226,15 @@ export default function BoatRoster() {
       {shapeId && (
         <BoatShapeEditor boatId={shapeId} onClose={() => setShapeId(null)} />
       )}
+
+      <TipsCard id="boats" title="How the Boats tab works" tips={[
+        'Your fleet lives here. Every boat you add appears in the Layout tab’s Boathouse and on the 3D staging racks until it’s placed on the trailer.',
+        '🗄️ Add from Shell Database picks a real manufacturer model — length, beam, hull weight, and crew rating are filled in automatically (estimated beams are marked "est.").',
+        'Add Manually is for boats you know the dimensions of; choosing a class pre-fills typical numbers.',
+        'Club vs Guest just groups the roster — handy when hauling visiting boats to a regatta.',
+        'The Shape button opens the hull editor: drag the handles or type values to match your boat’s real profile, and set colours, stripes, and the name decal under Appearance.',
+        '🧪 The Boat Generator creates a quick test fleet so you can experiment with trailer packing.',
+      ]} />
 
       {/* Boat generator (from the old Testing tab) */}
       <div style={{ ...S.card, padding: genOpen ? 16 : 0, overflow: 'hidden' }}>

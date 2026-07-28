@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 import type { Boat, BoatPlacement, Trailer } from '../types';
 import { computeTowerZs, computeTowerXZs, tierYs, snapZ, boatClearsTowers, withinOverhang } from '../utils';
+import TipsCard from '../components/TipsCard';
 import { boatHalfWidthAt, boatDepthAt, boatRockerAt } from '../boatShape';
 import { liveryOf } from '../livery';
 
@@ -1523,6 +1524,17 @@ export default function Visualizer3D() {
         >
           Clear Layout
         </button>
+      </div>
+
+      {/* Floating tips panel */}
+      <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, width: 'min(340px, 80vw)' }}>
+        <TipsCard id="3d" title="How the 3D View works" floating tips={[
+          'Left-drag empty space to orbit, right-drag (or two fingers) to move the camera, scroll to zoom toward the cursor.',
+          'Boats ride hull-up, exactly as loaded for travel. Unplaced boats wait on the staging racks beside the trailer.',
+          'Drag a boat to slide it along its tier; drag mostly up or down to hop between tiers.',
+          'Drag a boat from a staging rack onto the trailer to place it, or drag one off the side of the trailer to send it back to staging.',
+          'The same rules as the Layout tab apply — tower posts, the bow limit, and the 20% overhang cap.',
+        ]} />
       </div>
 
       <Canvas

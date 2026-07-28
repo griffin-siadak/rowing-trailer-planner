@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import { tierYs } from '../utils';
 import type { Trailer } from '../types';
 import { useIsMobile } from '../useIsMobile';
+import TipsCard from '../components/TipsCard';
 
 const TIER_NAMES = ['Top', 'Upper-Mid', 'Lower-Mid', 'Bottom', 'Fifth', 'Sixth'];
 
@@ -574,12 +575,14 @@ export default function TrailerEditor() {
 
   return (
     <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
-      <div style={{ ...card, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: 13, color: '#1d4ed8' }}>
-        Visual trailer editor — drag the handles in either view to reshape the trailer, or click any
-        value to type an exact number; changes show live here and in the 3D view. Positions are
-        measured from the <strong>driver-side front corner of the bed</strong>: tower/axle distance
-        is rearward from the front edge, and a single post's position is from the driver's-side edge.
-      </div>
+      <TipsCard id="trailer" title="How the Trailer tab works" tips={[
+        'Model your real trailer here — the Layout packing rules and the 3D view both follow this geometry exactly.',
+        'Drag the round handles in the side and end views to reshape the trailer, or click any value to type an exact number. Changes apply live.',
+        'Positions are measured from the driver-side front corner of the bed: tower/axle distances run rearward from the front edge, and a single post’s offset is from the driver’s-side edge.',
+        'Use the steppers to add or remove tiers, tower groups, axles, and posts per tower. Removing a tier clears the layout since placements reference it.',
+        'The in/mm toggle only changes the display — everything is stored metric.',
+        '↺ Reset trailer returns to the factory default (click twice to confirm) and clears the layout.',
+      ]} />
 
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
