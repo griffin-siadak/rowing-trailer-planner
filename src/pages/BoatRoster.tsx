@@ -190,6 +190,18 @@ export default function BoatRoster() {
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 8 }}>
                       <button
+                        onClick={() => updateBoat(boat.id, { travel: boat.travel === false })}
+                        title={boat.travel !== false ? 'Loading on the trailer — click to leave home' : 'Staying home — click to load'}
+                        style={{
+                          background: boat.travel !== false ? '#dcfce7' : 'white',
+                          border: boat.travel !== false ? '1px solid #86efac' : '1px solid #cbd5e1',
+                          borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 13,
+                          color: boat.travel !== false ? '#15803d' : '#94a3b8',
+                        }}
+                      >
+                        {boat.travel !== false ? '🚚 Loading' : '🏠 Home'}
+                      </button>
+                      <button
                         onClick={() => setShapeId(boat.id)}
                         style={{ background: 'none', border: '1px solid #93c5fd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 13, color: '#1d4ed8' }}
                       >
@@ -232,6 +244,7 @@ export default function BoatRoster() {
         '🗄️ Add from Shell Database picks a real manufacturer model — length, beam, hull weight, and crew rating are filled in automatically (estimated beams are marked "est.").',
         'Add Manually is for boats you know the dimensions of; choosing a class pre-fills typical numbers.',
         'Club vs Guest just groups the roster — handy when hauling visiting boats to a regatta.',
+        'The 🚚 Loading / 🏠 Home toggle marks whether a boat goes on the trailer this trip — Auto-Arrange only packs Loading boats.',
         'The Shape button opens the hull editor: drag the handles or type values to match your boat’s real profile, and set colours, stripes, and the name decal under Appearance.',
         '🧪 The Boat Generator creates a quick test fleet so you can experiment with trailer packing.',
       ]} />

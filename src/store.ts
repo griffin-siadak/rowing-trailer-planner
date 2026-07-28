@@ -299,7 +299,10 @@ export const useStore = create<State>()(
         })),
 
       autoLayout: () => {
-        const { trailer, boats } = get();
+        const { trailer, boats: allBoats } = get();
+        // Only pack boats marked as loading (travel !== false) — clubs rarely
+        // take the whole boathouse to a regatta.
+        const boats = allBoats.filter(b => b.travel !== false);
         const towerZs = computeTowerZs(trailer);
         const towerXZs = computeTowerXZs(trailer);
         const halfLen = trailer.bedLengthM / 2;

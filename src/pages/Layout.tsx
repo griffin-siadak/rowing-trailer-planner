@@ -231,7 +231,7 @@ export default function Layout() {
   const {
     trailer, boats, placements,
     addPlacement, movePlacement, setSlung, removePlacement, clearPlacements, clearAll,
-    autoLayout,
+    autoLayout, updateBoat,
   } = useStore();
 
   const towerZs  = computeTowerZs(trailer);
@@ -414,7 +414,8 @@ export default function Layout() {
           'Dashed cross-lines are the tower frames. On tiers below the top, the dark squares are the tower posts — boats must fit between them, and fine bow/stern sections can slip past where a wide midsection cannot.',
           'The red dashed line on the lowest two tiers is the bow limit: bows there may not reach past half the tongue.',
           'Boats may overhang each end by at most 20% of their length.',
-          '✨ Auto-Arrange packs the whole boathouse automatically — eights go to the top tier first, heaviest boats sit over the axles.',
+          'The ✓ on each boathouse boat marks it as loading for this trip — unchecked boats stay home and are dimmed. Use the Loading All/None buttons or a class’s all/none toggle to select in bulk.',
+          '✨ Auto-Arrange packs every checked boat automatically — eights go to the top tier first, heaviest boats sit over the axles.',
           'End views (drawer, bottom left) show the load from the front and rear. 🖨 Print makes a paper loading sheet.',
         ]} />
       </div>
@@ -664,7 +665,20 @@ export default function Layout() {
           <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Boathouse ({unplacedBoats.length})
           </span>
-          <button onClick={() => setMobilePanel(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8' }}>Loading:</span>
+            {([['All', true], ['None', false]] as const).map(([lbl, val]) => (
+              <button key={lbl}
+                onClick={() => boats.forEach(b => updateBoat(b.id, { travel: val }))}
+                style={{
+                  padding: '1px 8px', borderRadius: 99, fontSize: 10, fontWeight: 700,
+                  border: '1px solid #cbd5e1', background: 'white', color: '#475569', cursor: 'pointer',
+                }}>
+                {lbl}
+              </button>
+            ))}
+            <button onClick={() => setMobilePanel(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer', lineHeight: 1, marginLeft: 4 }}>✕</button>
+          </span>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {boats.length === 0 && (
@@ -673,23 +687,37 @@ export default function Layout() {
           {unplacedBoats.length === 0 && boats.length > 0 && (
             <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>All boats placed on trailer.</div>
           )}
-          {classKeys.map(cls => (
+          {classKeys.map(cls => {
+            const clsAllOn = classGroups[cls].every(b => b.travel !== false);
+            return (
             <div key={cls}>
               <div style={{
+                display: 'flex', alignItems: 'center', gap: 6,
                 fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase',
                 letterSpacing: '0.4px', marginBottom: 4,
               }}>
                 {cls}
+                <button
+                  onClick={() => classGroups[cls].forEach(b => updateBoat(b.id, { travel: !clsAllOn }))}
+                  title={clsAllOn ? `Leave all ${cls} home` : `Load all ${cls}`}
+                  style={{
+                    padding: '0 6px', borderRadius: 99, fontSize: 9, fontWeight: 700,
+                    border: '1px solid #cbd5e1', background: 'white', color: '#64748b',
+                    cursor: 'pointer', textTransform: 'none',
+                  }}>
+                  {clsAllOn ? 'none' : 'all'}
+                </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {classGroups[cls].map(boat => {
                   const color = BOAT_COLORS[boatColorIdx[boat.id] % BOAT_COLORS.length];
                   const sel = pendingBoatId === boat.id;
+                  const loading = boat.travel !== false;
                   return (
                     <div
                       key={boat.id}
                       onClick={() => { setPendingBoatId(sel ? null : boat.id); setMobilePanel(null); }}
-                      title={`${boat.name} — ${boat.lengthM}m`}
+                      title={`${boat.name} — ${boat.lengthM}m${loading ? '' : ' (staying home)'}`}
                       style={{
                         background: sel ? '#dbeafe' : color,
                         color: sel ? '#1d4ed8' : 'white',
@@ -697,16 +725,29 @@ export default function Layout() {
                         borderRadius: 5, padding: '3px 6px',
                         fontSize: 10, fontWeight: 600, cursor: 'pointer',
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        opacity: loading ? 1 : 0.4,
+                        display: 'flex', alignItems: 'center', gap: 5,
                       }}
                     >
-                      <span style={{ opacity: 0.75, fontSize: 9 }}>{boat.lengthM}m · </span>
-                      {boat.name}
+                      <span
+                        onClick={(e) => { e.stopPropagation(); updateBoat(boat.id, { travel: !loading }); }}
+                        title={loading ? 'Click: leave home' : 'Click: load on trailer'}
+                        style={{
+                          flexShrink: 0, width: 13, height: 13, borderRadius: 3, lineHeight: '13px',
+                          background: 'rgba(255,255,255,0.9)', color: loading ? '#16a34a' : 'transparent',
+                          fontSize: 10, fontWeight: 900, textAlign: 'center',
+                          border: '1px solid rgba(0,0,0,0.2)',
+                        }}>✓</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ opacity: 0.75, fontSize: 9 }}>{boat.lengthM}m · </span>
+                        {boat.name}
+                      </span>
                     </div>
                   );
                 })}
               </div>
             </div>
-          ))}
+          );})}
         </div>
       </div>
 

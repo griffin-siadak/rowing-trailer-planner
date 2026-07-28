@@ -34,6 +34,7 @@ export interface Boat {
   widthM: number;    // max beam (kept in sync with 2 × max(shape.beam))
   weightKg: number;  // hull weight — what the trailer actually carries
   guest?: boolean;   // true = visiting/guest boat, undefined/false = home/club boat
+  travel?: boolean;  // false = staying home; undefined/true = loading onto the trailer
   shape?: BoatShape;
   livery?: BoatLivery;
 }
