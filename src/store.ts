@@ -304,7 +304,6 @@ export const useStore = create<State>()(
         const towerXZs = computeTowerXZs(trailer);
         const halfLen = trailer.bedLengthM / 2;
         const halfW = trailer.trailerWidthM / 2;
-        const GAP = 0.08;
         // Bow of boats on the lowest 2 tiers cannot extend past half the tongue length
         const bowFrontLimit = halfLen + trailer.tongueLengthM / 2;
         // Tandem-axle midpoint (matches 3D model: 60% back from tray front).
@@ -324,11 +323,14 @@ export const useStore = create<State>()(
         }
         for (let z = -halfLen; z <= halfLen; z += 0.25) candidateZs.push(z);
 
-        // 4-person+ classes first (keeps longer boats on the higher tiers, which fill first),
-        // then within each group heaviest first so the heaviest boats claim the axle-zone slots.
+        // Eights place first so they always claim the top tier before anything
+        // else can take those slots, then the other large classes, then small
+        // boats. Within each group heaviest first so the heaviest boats claim
+        // the axle-zone slots.
+        const classRank = (cls: string) => cls === '8+' ? 0 : LARGE_CLASSES.has(cls) ? 1 : 2;
         const sorted = [...boats].sort((a, b) => {
-          const ap = LARGE_CLASSES.has(a.boatClass) ? 0 : 1;
-          const bp = LARGE_CLASSES.has(b.boatClass) ? 0 : 1;
+          const ap = classRank(a.boatClass);
+          const bp = classRank(b.boatClass);
           if (ap !== bp) return ap - bp;
           return (b.weightKg - a.weightKg) || (b.lengthM - a.lengthM);
         });
@@ -341,7 +343,9 @@ export const useStore = create<State>()(
           const tierOrder = Array.from({ length: trailer.tiers.length }, (_, i) => i);
           if (slung) tierOrder.reverse();
           for (const t of tierOrder) {
-            const xStep = boat.widthM + GAP;
+            // Fine lateral grid (not width-quantized): boats of different beams
+            // can slide into snug gaps instead of skipping usable space.
+            const xStep = 0.06;
             const xStart = -halfW + boat.widthM / 2;
             const xEnd   =  halfW - boat.widthM / 2;
             for (let xM = xStart; xM <= xEnd + 0.001; xM += xStep) {
