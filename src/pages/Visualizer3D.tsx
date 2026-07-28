@@ -5,7 +5,7 @@ import { OrbitControls, PerspectiveCamera, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { useStore } from '../store';
 import type { Boat, BoatPlacement, Trailer } from '../types';
-import { computeTowerZs, computeTowerXZs, tierYs, snapZ, boatClearsTowers } from '../utils';
+import { computeTowerZs, computeTowerXZs, tierYs, snapZ, boatClearsTowers, withinOverhang } from '../utils';
 import { boatHalfWidthAt, boatDepthAt, boatRockerAt } from '../boatShape';
 import { liveryOf } from '../livery';
 
@@ -1278,6 +1278,7 @@ function Scene() {
     const isOnTrailer = drag.previewX >= -halfW - 0.5 && drag.previewX <= halfW + 0.5;
     const clear = boat
       ? (newTier === 0 || boatClearsTowers(boat, drag.previewX, drag.previewZ, towerXZs))
+        && withinOverhang(drag.previewZ, boat.lengthM, halfLen)
       : true;
 
     if (drag.source === 'placement') {

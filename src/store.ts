@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Boat, Trailer, TierDef, TowerGroup, AxleDef, BoatPlacement } from './types';
-import { computeTowerZs, computeTowerXZs, isValidZ, snapZ, footprintsOverlap, boatClearsTowers } from './utils';
+import { computeTowerZs, computeTowerXZs, isValidZ, snapZ, footprintsOverlap, boatClearsTowers, withinOverhang } from './utils';
 import { defaultBoatShape, resampleCurve, N_STATIONS } from './boatShape';
 import { defaultLivery } from './livery';
 
@@ -353,7 +353,8 @@ export const useStore = create<State>()(
                   const key = Math.round(z * 1000);
                   if (seen.has(key)) return false;
                   seen.add(key);
-                  return isValidZ(z, boat.lengthM, towerZs);
+                  return isValidZ(z, boat.lengthM, towerZs)
+                    && withinOverhang(z, boat.lengthM, halfLen);
                 })
                 .sort((a, b) => Math.abs(a - axleZ) - Math.abs(b - axleZ));
               for (const zM of validZs) {

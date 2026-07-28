@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useStore } from '../store';
-import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers } from '../utils';
+import { computeTowerZs, computeTowerXZs, snapZ, isValidZ, footprintsOverlap, boatClearsTowers, withinOverhang } from '../utils';
 import { boatHalfWidthAt } from '../boatShape';
 import type { Boat } from '../types';
 
@@ -304,6 +304,7 @@ export default function Layout() {
     const boat = boatById[boatId];
     if (!boat) return false;
     if (!isValidZ(zM, boat.lengthM, towerZs)) return false;
+    if (!withinOverhang(zM, boat.lengthM, halfLen)) return false;
     if (tier >= tierCount - 2 && zM + boat.lengthM / 2 > bowFrontLimit) return false;
     if (tier > 0 && !boatClearsTowers(boat, xM, zM, towerXZs)) return false;
     return !placements.some(p => {

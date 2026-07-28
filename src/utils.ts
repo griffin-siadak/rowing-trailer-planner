@@ -54,6 +54,22 @@ export function isValidZ(zCenter: number, boatLength: number, towerZs: number[])
   return towerZs.filter(z => z >= zMin && z <= zMax).length >= 2;
 }
 
+// Max fraction of a boat's length allowed to overhang past either end of the
+// bed — real shells carry their weight near the middle, so anything past ~20%
+// per end would see-saw on the racks.
+export const MAX_OVERHANG_FRAC = 0.20;
+
+export function withinOverhang(
+  zCenter: number, boatLength: number, bedHalfLen: number,
+  maxFrac = MAX_OVERHANG_FRAC,
+): boolean {
+  const half = boatLength / 2;
+  const frontOver = (zCenter + half) - bedHalfLen;
+  const rearOver  = -bedHalfLen - (zCenter - half);
+  const cap = boatLength * maxFrac + 1e-6;
+  return frontOver <= cap && rearOver <= cap;
+}
+
 export function snapZ(
   dragZ: number,
   boatLength: number,
